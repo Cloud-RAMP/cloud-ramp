@@ -1,6 +1,11 @@
 package main
 
-// Entry point into the applicaiton. Should probably only exist to call some configuration loading methods and then start the server
-func main() {
+import (
+	"context"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/server"
+)
+
+func main() {
+	server.Start(context.Background())
 }
