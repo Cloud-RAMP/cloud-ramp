@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+
+	"github.com/google/uuid"
 )
 
 // Define start method here so that we can use it in testing
@@ -48,8 +51,29 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("IP:", r.RemoteAddr)
 	fmt.Println("Domain:", r.Host)
 
+	id, err := uuid.NewV7()
+	if err != nil {
+		fmt.Println("Failed to create uuid")
+		return
+	}
+
+	fmt.Println("ID is:", id)
+	// PUT NEW USER ID IN KV-STORE
+
+	parts := strings.Split(r.Host, ".")
+	fmt.Println(parts)
+	if len(parts) < 3 {
+		fmt.Println("Invalid request domain")
+		return
+	}
+	instanceId := parts[0]
+	fmt.Println("InstanceID:", instanceId)
+
+	url := r.URL
+	room := url.Path
+	fmt.Println("Room is:", room)
+
 	// Start separate goroutine for each connection
-	// This does not scale super well, think about maybe worker pools or something
 	go func() {
 		defer conn.Close() // when the function returns, close the connection
 
