@@ -7,9 +7,9 @@ Official repo for official business.
 1. Make sure you have go 1.24 downloaded (or some version close)
 2. For testing multiple different hosts, run `sudo nano /etc/hosts`, and then add the following domains:
 ```
-127.0.0.1   a.domain.com
-127.0.0.1   b.domain.com
-127.0.0.1   c.domain.com
+127.0.0.1   a.cloudramp.com
+127.0.0.1   b.cloudramp.com
+127.0.0.1   c.cloudramp.com
 ```
 
 > DNS checks first examine the `/etc/hosts` file before performing a lookup, meaning that these will all resolve to localhost
