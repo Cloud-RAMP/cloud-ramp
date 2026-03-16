@@ -144,3 +144,25 @@ func GetRoomConnections(instanceId, roomId string) []string {
 	}
 	return keys
 }
+
+func GetEventChan(instanceId, roomId, connId string) <-chan *CommEvent {
+	roomKey := getRoomKey(instanceId, roomId)
+
+	mu.Lock()
+	room, ok := commMap[roomKey]
+	mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	userChan, ok := room.conns[connId]
+	if !ok {
+		return nil
+	}
+
+	return userChan
+}
