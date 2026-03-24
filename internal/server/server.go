@@ -51,6 +51,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("IP:", r.RemoteAddr)
 	fmt.Println("Domain:", r.Host)
 
+	// Create new unique client id
 	id, err := uuid.NewV7()
 	if err != nil {
 		fmt.Println("Failed to create uuid")
@@ -60,8 +61,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("ID is:", id)
 	// PUT NEW USER ID IN KV-STORE
 
+	// Split the host so that we can gather necessary info
 	parts := strings.Split(r.Host, ".")
-	fmt.Println(parts)
 	if len(parts) < 3 {
 		fmt.Println("Invalid request domain")
 		return
