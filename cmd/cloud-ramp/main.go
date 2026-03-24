@@ -31,6 +31,7 @@ func main() {
 			AddHandler(wasmevents.GET_USERS, handlers.GetUsersHandler).
 			AddHandler(wasmevents.SEND_MESSAGE, handlers.SendMessageHandler).
 			AddHandler(wasmevents.FETCH, handlers.FetchHandler),
+		LoaderFunction: sandbox.LoaderFunction,
 	})
 
 	parentCtx := context.Background()

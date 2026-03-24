@@ -2,10 +2,12 @@ module github.com/Cloud-RAMP/cloud-ramp.git
 
 go 1.24.1
 
-require github.com/gobwas/ws v1.4.0
+require (
+	github.com/Cloud-RAMP/wasm-sandbox v0.0.0-20260311195328-fb246bdb4f88
+	github.com/gobwas/ws v1.4.0
+)
 
 require (
-	github.com/Cloud-RAMP/wasm-sandbox v0.0.0-20260311195328-fb246bdb4f88 // indirect
 	github.com/tetratelabs/wazero v1.11.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
@@ -17,3 +19,5 @@ require (
 	github.com/google/uuid v1.6.0
 	golang.org/x/sys v0.38.0 // indirect
 )
+
+replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox
