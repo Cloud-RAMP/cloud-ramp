@@ -24,7 +24,6 @@ function ensureConnection(socket: WebSocket): Promise<void> {
     // Receive the first message then close
     socket.onmessage = (ev: MessageEvent) => {
         console.log("Got message from server:", ev.data);
-        socket.close()
     }
 
     // Send initial message once everything is ready

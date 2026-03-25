@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const LEAVE_ERROR = "ws closed: 1005 "
+
 // Define start method here so that we can use it in testing
 //
 // It's a good habit to use these "ctx" objects, since they give us fine grained
@@ -27,6 +29,7 @@ func Start(ctx context.Context) {
 	}
 
 	go func() {
+		fmt.Println("Server listening on", server.Addr)
 		err := server.ListenAndServe()
 		if err != nil {
 			fmt.Println("Error starting server", err)
@@ -74,12 +77,25 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		InstanceId:   instanceId,
 	}
 
+	// Start separate goroutine for each connection
 	ctx, ctxClose := context.WithCancel(context.Background())
 
-	// Start separate goroutine for each connection
+	// execute the initial on join event
+	event := baseEvent
+	event.Timestamp = time.Now().UnixMilli()
+	event.EventType = wsevents.ON_JOIN
+	sandbox.Execute(ctx, &event)
+
 	go func() {
+		// the defers will run most-recent first, so the ON_LEAVE func will be 1st
 		defer ctxClose()
 		defer conn.Close()
+		defer (func() {
+			event := baseEvent
+			event.Timestamp = time.Now().UnixMilli()
+			event.EventType = wsevents.ON_LEAVE
+			sandbox.Execute(ctx, &event)
+		})()
 
 		// infinite loop
 		for {
@@ -92,11 +108,21 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			} else if err != nil {
 				// handle error
 				fmt.Println("error reading:", err)
+
+				// Can still just get an error on client disconnect, check that
+				if err.Error() != LEAVE_ERROR {
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.EventType = wsevents.ON_ERROR
+					event.Payload = err.Error()
+					sandbox.Execute(ctx, &event)
+					continue
+				}
+
+				// We hit here if the connection has closed, close the websocket
 				return
 			}
 
-			// Probably not super necessary, good safeguard though
-			// Other operation types CAN be sent
 			if op.IsData() {
 				event := baseEvent
 				event.Timestamp = time.Now().UnixMilli()
@@ -115,7 +141,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				fmt.Println("Client disconnected")
 				return
 			} else if err != nil {
-				fmt.Println("error reading:", err)
+				if err.Error() != LEAVE_ERROR {
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.EventType = wsevents.ON_ERROR
+					event.Payload = err.Error()
+					sandbox.Execute(ctx, &event)
+					continue
+				}
+
 				return
 			}
 		}
