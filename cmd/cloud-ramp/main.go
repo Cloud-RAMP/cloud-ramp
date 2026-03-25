@@ -12,8 +12,10 @@ import (
 )
 
 func main() {
+	parentCtx := context.Background()
+
 	// These values will probably need to be changed later to ones that make sense for the system
-	sandbox.InitializeSandbox(store.SandboxStoreCfg{
+	sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    5 * time.Second,
 		MaxIdleTime:        6 * time.Second,
 		MemoryLimitPages:   10,
@@ -31,9 +33,9 @@ func main() {
 			AddHandler(wasmevents.GET_USERS, handlers.GetUsersHandler).
 			AddHandler(wasmevents.SEND_MESSAGE, handlers.SendMessageHandler).
 			AddHandler(wasmevents.FETCH, handlers.FetchHandler),
-		LoaderFunction: sandbox.LoaderFunction,
+		// LoaderFunction: sandbox.LoaderFunction,
+		LoaderFunction: sandbox.DummyLoaderFunction,
 	})
 
-	parentCtx := context.Background()
 	server.Start(parentCtx)
 }

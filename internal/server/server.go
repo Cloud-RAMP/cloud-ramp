@@ -6,7 +6,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
+	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
@@ -46,11 +49,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Here we can access info about the client, good for logging + billing purposes
-	fmt.Println("New client connected:")
-	fmt.Println("IP:", r.RemoteAddr)
-	fmt.Println("Domain:", r.Host)
-
 	// Create new unique client id
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -58,8 +56,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Println("ID is:", id)
-	// PUT NEW USER ID IN KV-STORE
+	// TODO: PUT NEW USER ID IN KV-STORE
 
 	// Split the host so that we can gather necessary info
 	parts := strings.Split(r.Host, ".")
@@ -68,15 +65,21 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	instanceId := parts[0]
-	fmt.Println("InstanceID:", instanceId)
-
 	url := r.URL
 	room := url.Path
-	fmt.Println("Room is:", room)
+
+	baseEvent := wsevents.WSEventInfo{
+		ConnectionId: id.String(),
+		RoomId:       room,
+		InstanceId:   instanceId,
+	}
+
+	ctx, ctxClose := context.WithCancel(context.Background())
 
 	// Start separate goroutine for each connection
 	go func() {
-		defer conn.Close() // when the function returns, close the connection
+		defer ctxClose()
+		defer conn.Close()
 
 		// infinite loop
 		for {
@@ -95,9 +98,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			// Probably not super necessary, good safeguard though
 			// Other operation types CAN be sent
 			if op.IsData() {
-				fmt.Println("Client message:", string(msg))
+				event := baseEvent
+				event.Timestamp = time.Now().UnixMilli()
+				event.Payload = string(msg)
+				event.EventType = wsevents.ON_MESSAGE
 
-				// TODO: do operations here
+				// execute logs the error
+				if sandbox.Execute(ctx, &event) != nil {
+					continue
+				}
 			}
 
 			// Write a message to the client as the server (in this case, echo it)

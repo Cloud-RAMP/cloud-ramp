@@ -10,8 +10,8 @@ import (
 
 var sandbox *store.SandboxStore
 
-func InitializeSandbox(cfg store.SandboxStoreCfg) error {
-	newSandbox, err := store.NewSandboxStore(cfg)
+func InitializeSandbox(ctx context.Context, cfg store.SandboxStoreCfg) error {
+	newSandbox, err := store.NewSandboxStore(ctx, cfg)
 	if err != nil {
 		sandbox = nil
 		return err
