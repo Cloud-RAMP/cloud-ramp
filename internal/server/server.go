@@ -143,7 +143,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				fmt.Println("Client disconnected")
 				return
 			} else if err != nil {
-				fmt.Println("error reading:", err)
+				if err.Error() != LEAVE_ERROR {
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.EventType = wsevents.ON_ERROR
+					event.Payload = err.Error()
+					sandbox.Execute(ctx, &event)
+					continue
+				}
+
 				return
 			}
 		}
