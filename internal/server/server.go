@@ -80,13 +80,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Start separate goroutine for each connection
 	ctx, ctxClose := context.WithCancel(context.Background())
 
-	// execute the initial on join event in a non-blocking goroutine
-	go func() {
-		event := baseEvent
-		event.Timestamp = time.Now().UnixMilli()
-		event.EventType = wsevents.ON_JOIN
-		sandbox.Execute(ctx, &event)
-	}()
+	// execute the initial on join event
+	event := baseEvent
+	event.Timestamp = time.Now().UnixMilli()
+	event.EventType = wsevents.ON_JOIN
+	sandbox.Execute(ctx, &event)
 
 	go func() {
 		// the defers will run most-recent first, so the ON_LEAVE func will be 1st
