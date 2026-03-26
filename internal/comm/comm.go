@@ -1,6 +1,7 @@
 package comm
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"sync"
@@ -15,15 +16,29 @@ const (
 	JOIN
 )
 
+var commEventTypeToString = map[CommEventType]string{
+	SEND_MESSAGE: "SEND_MESSAGE",
+	BROADCAST:    "BROADCAST",
+	LEAVE:        "LEAVE",
+	JOIN:         "JOIN",
+}
+
+func (c CommEventType) MarshalJSON() ([]byte, error) {
+	str, ok := commEventTypeToString[c]
+	if !ok {
+		return nil, fmt.Errorf("invalid CommEventType: %d", c)
+	}
+	return json.Marshal(str)
+}
+
 type CommEvent struct {
-	destInstance string
-	destRoom     string
-	destConn     string
-	srcInstance  string
-	srcRoom      string
-	srcConn      string
-	payload      string
-	eventType    CommEventType
+	Instance  string        `json:"-"` // don't add instance to JSON
+	DstRoom   string        `json:"dst_room"`
+	DstConn   string        `json:"dst_conn"`
+	SrcRoom   string        `json:"src_room"`
+	SrcConn   string        `json:"src_conn"`
+	Payload   string        `json:"payload"`
+	EventType CommEventType `json:"event_type"`
 }
 
 type CommRoom struct {
@@ -46,23 +61,24 @@ func getRoomKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:%s", instanceId, roomId)
 }
 
+// Send a CommEvent to a dst user
 func SendEvent(e *CommEvent) error {
-	roomKey := getRoomKey(e.destInstance, e.destRoom)
+	roomKey := getRoomKey(e.Instance, e.DstRoom)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
 	mu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("invalid destination instance/room: %s/%s", e.destInstance, e.destRoom)
+		return fmt.Errorf("invalid destination instance/room: %s/%s", e.Instance, e.DstRoom)
 	}
 
 	room.mu.Lock()
-	userChan, ok := room.conns[e.destConn]
+	userChan, ok := room.conns[e.DstConn]
 	room.mu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("invalid destination connection: %s", e.destConn)
+		return fmt.Errorf("invalid destination connection: %s", e.DstConn)
 	}
 
 	// non-blocking, avoid deadlock
@@ -70,11 +86,12 @@ func SendEvent(e *CommEvent) error {
 	case userChan <- e:
 		return nil
 	default:
-		return fmt.Errorf("channel full or unavailable for connection: %s", e.destConn)
+		return fmt.Errorf("channel full or unavailable for connection: %s", e.DstConn)
 	}
 }
 
-func InitConn(instanceId, roomId, connId string) {
+// Initialize a message channel for a given connection
+func InitConn(instanceId, roomId, connId string) <-chan *CommEvent {
 	roomKey := getRoomKey(instanceId, roomId)
 
 	mu.Lock()
@@ -93,8 +110,11 @@ func InitConn(instanceId, roomId, connId string) {
 	if _, ok := room.conns[connId]; !ok {
 		room.conns[connId] = make(chan *CommEvent, CHAN_SIZE)
 	}
+
+	return room.conns[connId]
 }
 
+// Close the message channel for a given connection
 func CloseConn(instanceId, roomId, connId string) {
 	roomKey := getRoomKey(instanceId, roomId)
 
@@ -145,6 +165,7 @@ func GetRoomConnections(instanceId, roomId string) []string {
 	return keys
 }
 
+// Returns the event channel for a given connection
 func GetEventChan(instanceId, roomId, connId string) <-chan *CommEvent {
 	roomKey := getRoomKey(instanceId, roomId)
 

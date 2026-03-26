@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 	"github.com/gobwas/ws"
@@ -53,7 +55,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create new unique client id
-	id, err := uuid.NewV7()
+	connId, err := uuid.NewV7()
 	if err != nil {
 		fmt.Println("Failed to create uuid")
 		return
@@ -69,16 +71,19 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	instanceId := parts[0]
 	url := r.URL
-	room := url.Path
+	room := strings.TrimPrefix(url.Path, "/")
 
 	baseEvent := wsevents.WSEventInfo{
-		ConnectionId: id.String(),
+		ConnectionId: connId.String(),
 		RoomId:       room,
 		InstanceId:   instanceId,
 	}
 
-	// Start separate goroutine for each connection
+	// Background context for goroutine
 	ctx, ctxClose := context.WithCancel(context.Background())
+
+	// Set up inter-connection communication channel
+	commChan := comm.InitConn(instanceId, room, connId.String())
 
 	// execute the initial on join event
 	event := baseEvent
@@ -86,10 +91,25 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	event.EventType = wsevents.ON_JOIN
 	sandbox.Execute(ctx, &event)
 
+	// Create goroutine to capture communication events
+	go func() {
+		for commEvent := range commChan {
+			// Send data to the connection
+			json, err := json.Marshal(commEvent)
+			if err != nil {
+				fmt.Println("Failed to marshal json:", err)
+				continue
+			}
+
+			err = wsutil.WriteServerMessage(conn, ws.OpText, json)
+		}
+	}()
+
 	go func() {
 		// the defers will run most-recent first, so the ON_LEAVE func will be 1st
 		defer ctxClose()
 		defer conn.Close()
+		defer comm.CloseConn(instanceId, room, connId.String())
 		defer (func() {
 			event := baseEvent
 			event.Timestamp = time.Now().UnixMilli()
@@ -97,7 +117,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			sandbox.Execute(ctx, &event)
 		})()
 
-		// infinite loop
+		// loop for duration of the connection
 		for {
 			// Read data from the client on the connection
 			// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
@@ -106,21 +126,17 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				fmt.Println("Client disconnected")
 				return
 			} else if err != nil {
-				// handle error
-				fmt.Println("error reading:", err)
-
-				// Can still just get an error on client disconnect, check that
-				if err.Error() != LEAVE_ERROR {
-					event := baseEvent
-					event.Timestamp = time.Now().UnixMilli()
-					event.EventType = wsevents.ON_ERROR
-					event.Payload = err.Error()
-					sandbox.Execute(ctx, &event)
-					continue
+				// Client disconnected
+				if err.Error() == LEAVE_ERROR {
+					return
 				}
 
-				// We hit here if the connection has closed, close the websocket
-				return
+				fmt.Println("Error reading:", err)
+				event := baseEvent
+				event.Timestamp = time.Now().UnixMilli()
+				event.EventType = wsevents.ON_ERROR
+				event.Payload = err.Error()
+				sandbox.Execute(ctx, &event)
 			}
 
 			if op.IsData() {
@@ -129,10 +145,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				event.Payload = string(msg)
 				event.EventType = wsevents.ON_MESSAGE
 
-				// execute logs the error
-				if sandbox.Execute(ctx, &event) != nil {
-					continue
-				}
+				// execute logs any errors
+				sandbox.Execute(ctx, &event)
 			}
 
 			// Write a message to the client as the server (in this case, echo it)
@@ -141,16 +155,16 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				fmt.Println("Client disconnected")
 				return
 			} else if err != nil {
-				if err.Error() != LEAVE_ERROR {
-					event := baseEvent
-					event.Timestamp = time.Now().UnixMilli()
-					event.EventType = wsevents.ON_ERROR
-					event.Payload = err.Error()
-					sandbox.Execute(ctx, &event)
-					continue
+				if err.Error() == LEAVE_ERROR {
+					return
 				}
 
-				return
+				fmt.Println("Error writing:", err)
+				event := baseEvent
+				event.Timestamp = time.Now().UnixMilli()
+				event.EventType = wsevents.ON_ERROR
+				event.Payload = err.Error()
+				sandbox.Execute(ctx, &event)
 			}
 		}
 	}()
