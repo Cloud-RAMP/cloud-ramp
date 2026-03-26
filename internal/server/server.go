@@ -102,7 +102,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		for {
 			select {
-			case commEvent := <-commChan:
+			case commEvent, ok := <-commChan:
+				if !ok {
+					return
+				}
+
 				// Send data to the connection
 				json, err := json.Marshal(commEvent)
 				if err != nil {
@@ -111,7 +115,12 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				}
 
 				err = wsutil.WriteServerMessage(conn, ws.OpText, json)
-			case redisEvent := <-redisChan:
+			case redisEvent, ok := <-redisChan:
+				if !ok {
+					// channel closed
+					return
+				}
+
 				event := &comm.CommEvent{}
 				err := json.Unmarshal([]byte(redisEvent.Payload), event)
 				if err != nil {

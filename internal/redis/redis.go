@@ -40,6 +40,9 @@ func InitClient(ctx context.Context) {
 	}
 
 	client = redis.NewClient(options)
+	roomChans = make(map[string]*redis.PubSub)
+
+	client.FlushAll(ctx)
 }
 
 // Makes a user join a given room. If the room does not exist, it is created
@@ -124,6 +127,7 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId string) error {
 	event := comm.CommEvent{
 		DstConn:   "*",
 		SrcConn:   userId,
+		Room:      roomId,
 		EventType: comm.LEAVE,
 	}
 	eventJson, err := json.Marshal(event)
