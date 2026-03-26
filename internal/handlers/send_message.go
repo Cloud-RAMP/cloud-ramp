@@ -9,9 +9,8 @@ func SendMessageHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	// send test event
 	// err = comm.SendEvent(&comm.CommEvent{
 	// 	Instance:  instanceId,
-	// 	DstRoom:   room,
+	// 	Room:      room,
 	// 	DstConn:   connId.String(),
-	// 	SrcRoom:   room,
 	// 	SrcConn:   connId.String(),
 	// 	Payload:   "testing message",
 	// 	EventType: comm.SEND_MESSAGE,
