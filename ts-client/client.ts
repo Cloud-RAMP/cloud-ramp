@@ -27,5 +27,5 @@ function ensureConnection(socket: WebSocket): Promise<void> {
     }
 
     // Send initial message once everything is ready
-    socket.send("Hello server from TypeScript!");
+    // socket.send("Hello server from TypeScript!");
 })()
