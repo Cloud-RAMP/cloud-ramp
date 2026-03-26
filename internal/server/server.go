@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 	"github.com/gobwas/ws"
@@ -82,8 +83,14 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Background context for goroutine
 	ctx, ctxClose := context.WithCancel(context.Background())
 
-	// Set up inter-connection communication channel
+	// Set up inter-connection/node communication channels
 	commChan := comm.InitConn(instanceId, room, connId.String())
+	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
+	if err != nil {
+		fmt.Printf("Connection %s failed to join redis room: %v\n", connId.String(), err)
+		ctxClose()
+		return
+	}
 
 	// execute the initial on join event
 	event := baseEvent
@@ -93,15 +100,32 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Create goroutine to capture communication events
 	go func() {
-		for commEvent := range commChan {
-			// Send data to the connection
-			json, err := json.Marshal(commEvent)
-			if err != nil {
-				fmt.Println("Failed to marshal json:", err)
-				continue
-			}
+		for {
+			select {
+			case commEvent := <-commChan:
+				// Send data to the connection
+				json, err := json.Marshal(commEvent)
+				if err != nil {
+					fmt.Println("Failed to marshal local communication json:", err)
+					continue
+				}
 
-			err = wsutil.WriteServerMessage(conn, ws.OpText, json)
+				err = wsutil.WriteServerMessage(conn, ws.OpText, json)
+			case redisEvent := <-redisChan:
+				event := &comm.CommEvent{}
+				err := json.Unmarshal([]byte(redisEvent.Payload), event)
+				if err != nil {
+					fmt.Println("Failed to marshal json:", err)
+					continue
+				}
+
+				// this message is not meant for us
+				if event.DstConn != "*" && event.DstConn != connId.String() {
+					continue
+				}
+
+				err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
+			}
 		}
 	}()
 
@@ -110,6 +134,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		defer ctxClose()
 		defer conn.Close()
 		defer comm.CloseConn(instanceId, room, connId.String())
+		defer redis.LeaveRoom(ctx, instanceId, room, connId.String())
 		defer (func() {
 			event := baseEvent
 			event.Timestamp = time.Now().UnixMilli()

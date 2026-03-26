@@ -33,9 +33,8 @@ func (c CommEventType) MarshalJSON() ([]byte, error) {
 
 type CommEvent struct {
 	Instance  string        `json:"-"` // don't add instance to JSON
-	DstRoom   string        `json:"dst_room"`
+	Room      string        `json:"-"` // don't add room to JSON (receving user should know what room they are in)
 	DstConn   string        `json:"dst_conn"`
-	SrcRoom   string        `json:"src_room"`
 	SrcConn   string        `json:"src_conn"`
 	Payload   string        `json:"payload"`
 	EventType CommEventType `json:"event_type"`
@@ -56,21 +55,21 @@ func init() {
 	commMap = make(map[string]*CommRoom)
 }
 
-// getRoomKey creates a compound key from instance and room
-func getRoomKey(instanceId, roomId string) string {
+// GetRoomKey creates a compound key from instance and room
+func GetRoomKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:%s", instanceId, roomId)
 }
 
 // Send a CommEvent to a dst user
 func SendEvent(e *CommEvent) error {
-	roomKey := getRoomKey(e.Instance, e.DstRoom)
+	roomKey := GetRoomKey(e.Instance, e.Room)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
 	mu.Unlock()
 
 	if !ok {
-		return fmt.Errorf("invalid destination instance/room: %s/%s", e.Instance, e.DstRoom)
+		return fmt.Errorf("invalid destination instance/room: %s/%s", e.Instance, e.Room)
 	}
 
 	room.mu.Lock()
@@ -92,7 +91,7 @@ func SendEvent(e *CommEvent) error {
 
 // Initialize a message channel for a given connection
 func InitConn(instanceId, roomId, connId string) <-chan *CommEvent {
-	roomKey := getRoomKey(instanceId, roomId)
+	roomKey := GetRoomKey(instanceId, roomId)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
@@ -116,7 +115,7 @@ func InitConn(instanceId, roomId, connId string) <-chan *CommEvent {
 
 // Close the message channel for a given connection
 func CloseConn(instanceId, roomId, connId string) {
-	roomKey := getRoomKey(instanceId, roomId)
+	roomKey := GetRoomKey(instanceId, roomId)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
@@ -144,7 +143,7 @@ func CloseConn(instanceId, roomId, connId string) {
 
 // Returns all connections in a room
 func GetRoomConnections(instanceId, roomId string) []string {
-	roomKey := getRoomKey(instanceId, roomId)
+	roomKey := GetRoomKey(instanceId, roomId)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
@@ -167,7 +166,7 @@ func GetRoomConnections(instanceId, roomId string) []string {
 
 // Returns the event channel for a given connection
 func GetEventChan(instanceId, roomId, connId string) <-chan *CommEvent {
-	roomKey := getRoomKey(instanceId, roomId)
+	roomKey := GetRoomKey(instanceId, roomId)
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
