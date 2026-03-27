@@ -6,16 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/redis/go-redis/v9"
 )
 
 var client *redis.Client
-
-var roomChans map[string]*redis.PubSub
-var roomChansMu sync.Mutex
 
 // Returns the key for pub/sub for a given room
 func getEventKey(instanceId, roomId string) string {
@@ -40,6 +36,9 @@ func InitClient(ctx context.Context) {
 	}
 
 	client = redis.NewClient(options)
+	roomChans = make(map[string]*pubSub)
+
+	client.FlushAll(ctx)
 }
 
 // Makes a user join a given room. If the room does not exist, it is created
@@ -59,10 +58,14 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 	roomChansMu.Lock()
 	pubSub, ok := roomChans[key]
 	if !ok {
-		pubSub = client.Subscribe(ctx, eventKey)
+		redisPubSub := client.Subscribe(ctx, eventKey)
+		pubSub = initPubSub(redisPubSub)
 		roomChans[key] = pubSub
 	}
 	roomChansMu.Unlock()
+
+	// add the user to the pub/sub model and get the chan back
+	ch := pubSub.addUser(userId)
 
 	// publish initial JOIN event
 	// TODO: add user config to toggle this on / off
@@ -80,7 +83,7 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 	}
 
 	// return chan for calling process to read from
-	return pubSub.Channel(), nil
+	return ch, nil
 }
 
 // Removes a user from a room
@@ -116,56 +119,25 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId string) error {
 		}
 
 		delete(roomChans, key)
-		return pubSub.Close()
+		pubSub.removeUser(userId)
+		pubSub.cancel() // cancel context to terminate goroutine
+		return pubSub.dataChan.Close()
 	}
+
+	roomChansMu.Lock()
+	pubSub, ok := roomChans[key]
+	if ok {
+		pubSub.removeUser(userId)
+	}
+	roomChansMu.Unlock()
 
 	// Send leave event
 	// Similarly, add config to turn this on/off
 	event := comm.CommEvent{
 		DstConn:   "*",
 		SrcConn:   userId,
-		EventType: comm.LEAVE,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Broadcast a message to an entire room
-func Broadcast(ctx context.Context, instanceId, roomId, userId, message string) error {
-	event := comm.CommEvent{
-		DstConn:   "*",
-		SrcConn:   userId,
-		Payload:   message,
-		EventType: comm.BROADCAST,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Send a message that goes through redis
-//
-// This is only to be used if the destination user is not connected to the same node
-func SendMessage(ctx context.Context, instanceId, roomId, userId, dstUserId, message string) error {
-	event := comm.CommEvent{
 		Room:      roomId,
-		DstConn:   dstUserId,
-		SrcConn:   userId,
-		Payload:   message,
-		EventType: comm.SEND_MESSAGE,
+		EventType: comm.LEAVE,
 	}
 	eventJson, err := json.Marshal(event)
 	if err != nil {

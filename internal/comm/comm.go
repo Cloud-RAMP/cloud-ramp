@@ -23,12 +23,34 @@ var commEventTypeToString = map[CommEventType]string{
 	JOIN:         "JOIN",
 }
 
+var stringToCommEventType = map[string]CommEventType{
+	"SEND_MESSAGE": SEND_MESSAGE,
+	"BROADCAST":    BROADCAST,
+	"LEAVE":        LEAVE,
+	"JOIN":         JOIN,
+}
+
 func (c CommEventType) MarshalJSON() ([]byte, error) {
 	str, ok := commEventTypeToString[c]
 	if !ok {
 		return nil, fmt.Errorf("invalid CommEventType: %d", c)
 	}
 	return json.Marshal(str)
+}
+
+func (c *CommEventType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return fmt.Errorf("CommEventType must be a JSON string: %w", err)
+	}
+
+	eventType, ok := stringToCommEventType[str]
+	if !ok {
+		return fmt.Errorf("invalid CommEventType: %s", str)
+	}
+
+	*c = eventType
+	return nil
 }
 
 type CommEvent struct {
