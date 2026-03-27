@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
@@ -13,5 +14,6 @@ func GetUsersHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	fmt.Println(users)
 	return strings.Join(users, ","), nil
 }

@@ -131,12 +131,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Background context for goroutine
 	ctx, ctxClose := context.WithCancel(context.Background())
 
-	// execute the initial on join event
-	event := baseEvent
-	event.Timestamp = time.Now().UnixMilli()
-	event.EventType = wsevents.ON_JOIN
-	sandbox.Execute(ctx, &event)
-
+	// establish room chan and join redis pub/sub
 	commChan := comm.InitConn(instanceId, room, connId.String())
 	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
 	if err != nil {
@@ -144,6 +139,12 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		ctxClose()
 		return
 	}
+
+	// execute the initial on join event
+	event := baseEvent
+	event.Timestamp = time.Now().UnixMilli()
+	event.EventType = wsevents.ON_JOIN
+	sandbox.Execute(ctx, &event)
 
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String())
 	go func() {
