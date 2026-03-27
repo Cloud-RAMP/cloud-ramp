@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,8 @@ import (
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+
+	_redis "github.com/redis/go-redis/v9"
 
 	"github.com/google/uuid"
 )
@@ -46,6 +49,53 @@ func Start(ctx context.Context) {
 	server.Shutdown(ctx)
 }
 
+func handleExternalMessages(
+	ctx context.Context,
+	conn net.Conn,
+	commChan <-chan *comm.CommEvent,
+	redisChan <-chan *_redis.Message,
+	connId string,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case commEvent, ok := <-commChan:
+			if !ok {
+				return
+			}
+
+			// Send data to the connection
+			json, err := json.Marshal(commEvent)
+			if err != nil {
+				fmt.Println("Failed to marshal local communication json:", err)
+				continue
+			}
+
+			err = wsutil.WriteServerMessage(conn, ws.OpText, json)
+		case redisEvent, ok := <-redisChan:
+			if !ok {
+				// channel closed
+				return
+			}
+
+			event := &comm.CommEvent{}
+			err := json.Unmarshal([]byte(redisEvent.Payload), event)
+			if err != nil {
+				fmt.Println("Failed to marshal json:", err)
+				continue
+			}
+
+			// this message is not meant for us, or we sent it
+			if (event.DstConn != "*" && event.DstConn != connId) || event.SrcConn == connId {
+				continue
+			}
+
+			err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
+		}
+	}
+}
+
 // Connection handler function
 func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Updagrade the HTTP connection to WS
@@ -61,8 +111,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("Failed to create uuid")
 		return
 	}
-
-	// TODO: PUT NEW USER ID IN KV-STORE
 
 	// Split the host so that we can gather necessary info
 	parts := strings.Split(r.Host, ".")
@@ -83,66 +131,26 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Background context for goroutine
 	ctx, ctxClose := context.WithCancel(context.Background())
 
-	// Set up inter-connection/node communication channels
-	commChan := comm.InitConn(instanceId, room, connId.String())
-	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
-	if err != nil {
-		fmt.Printf("Connection %s failed to join redis room: %v\n", connId.String(), err)
-		ctxClose()
-		return
-	}
-
 	// execute the initial on join event
 	event := baseEvent
 	event.Timestamp = time.Now().UnixMilli()
 	event.EventType = wsevents.ON_JOIN
 	sandbox.Execute(ctx, &event)
 
-	// Create goroutine to capture communication events
-	go func() {
-		for {
-			select {
-			case commEvent, ok := <-commChan:
-				if !ok {
-					return
-				}
+	commChan := comm.InitConn(instanceId, room, connId.String())
+	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
+	if err != nil {
+		fmt.Printf("Connection %s failed to join redis room: %v\n", connId, err)
+		ctxClose()
+		return
+	}
 
-				// Send data to the connection
-				json, err := json.Marshal(commEvent)
-				if err != nil {
-					fmt.Println("Failed to marshal local communication json:", err)
-					continue
-				}
-
-				err = wsutil.WriteServerMessage(conn, ws.OpText, json)
-			case redisEvent, ok := <-redisChan:
-				if !ok {
-					// channel closed
-					return
-				}
-
-				event := &comm.CommEvent{}
-				err := json.Unmarshal([]byte(redisEvent.Payload), event)
-				if err != nil {
-					fmt.Println("Failed to marshal json:", err)
-					continue
-				}
-
-				// this message is not meant for us
-				if event.DstConn != "*" && event.DstConn != connId.String() {
-					continue
-				}
-
-				err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
-			}
-		}
-	}()
-
+	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String())
 	go func() {
 		// the defers will run most-recent first, so the ON_LEAVE func will be 1st
-		defer ctxClose()
 		defer conn.Close()
 		defer comm.CloseConn(instanceId, room, connId.String())
+		defer ctxClose()
 		defer redis.LeaveRoom(ctx, instanceId, room, connId.String())
 		defer (func() {
 			event := baseEvent
