@@ -4,40 +4,106 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
+
+	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
+	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 )
 
-// write to /tmp/cloudramp/log
+// write to /tmp/cloudramp/logs/{instanceID}.log
+const logsDir = "/tmp/cloudramp/logs"
 
-var logFile *os.File
-var logger *slog.Logger
+var mu sync.Mutex
+var loggers map[string]*slog.Logger
 
 func init() {
-	const logDir = "/tmp/cloudramp"
-	const logFilePath = logDir + "/log"
-
-	err := os.MkdirAll(logDir, 0o755)
+	err := os.MkdirAll(logsDir, 0o755)
 	if err != nil {
 		fmt.Println("Could not create log directories", err)
 		os.Exit(1)
 	}
 
-	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		fmt.Println("Could not open log file", err)
-		os.Exit(1)
+	loggers = make(map[string]*slog.Logger)
+}
+
+func getLogger(instanceId string) *slog.Logger {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if l, ok := loggers[instanceId]; ok {
+		return l
 	}
 
-	logger = slog.New(slog.NewTextHandler(logFile, nil))
+	logFilePath := fmt.Sprintf("%s/%s.log", logsDir, instanceId)
+	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Println("Could not open log file", err)
+		return slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	}
+
+	logger := slog.New(slog.NewJSONHandler(logFile, nil))
+	loggers[instanceId] = logger
+
+	return logger
 }
 
-func Info(instanceId, info string) {
-	logger.Info(info, "instanceID", instanceId)
+func Error(instanceId, connectionId, info string) {
+	getLogger(instanceId).Error(info, "instanceID", instanceId, "connectionID", connectionId)
 }
 
-func Error(instanceId, info string) {
-	logger.Error(info, "instanceID", instanceId)
+func Warn(instanceId, connectionId, info string) {
+	getLogger(instanceId).Warn(info, "instanceID", instanceId, "connectionID", connectionId)
 }
 
-func Warn(instanceId, info string) {
-	logger.Warn(info, "instanceID", instanceId)
+// Log a WASM event
+func WASMEvent(event *wasmevents.WASMEventInfo) {
+	if event == nil {
+		Warn("unknown", "unknown", "WASMEvent called with nil event")
+		return
+	}
+
+	getLogger(event.InstanceId).Info("WASMEvent",
+		"connectionID",
+		event.ConnectionId,
+		"roomID",
+		event.RoomId,
+		"eventType",
+		event.EventType.String(),
+		"payload",
+		strings.Join(event.Payload, ","),
+	)
+}
+
+// Log a ws event
+func WSEvent(event *wsevents.WSEventInfo) {
+	if event == nil {
+		Warn("unknown", "unknown", "WSEvent called with nil event")
+		return
+	}
+
+	getLogger(event.InstanceId).Info("WSEvent",
+		"connectionID",
+		event.ConnectionId,
+		"roomID",
+		event.RoomId,
+		"eventType",
+		event.EventType.String(),
+		"payload",
+		event.Payload,
+	)
+}
+
+// Log a new connection
+func NewConnection(instanceId, ip, connectionId, roomId string) {
+	getLogger(instanceId).Info("NewConnection",
+		"instanceId",
+		instanceId,
+		"roomId",
+		roomId,
+		"connectionId",
+		connectionId,
+		"ip",
+		ip,
+	)
 }
