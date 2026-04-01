@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
@@ -24,21 +23,22 @@ func getUsersKey(instanceId, roomId string) string {
 }
 
 // Initialize the redis client. To be called on startup
-func InitClient(ctx context.Context) {
+func InitClient(ctx context.Context) error {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		log.Fatal(".env does not contain a redis URL")
+		return fmt.Errorf("could not get REDIS_URL from .env")
 	}
 
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	client = redis.NewClient(options)
 	roomChans = make(map[string]*pubSub)
 
 	client.FlushAll(ctx)
+	return nil
 }
 
 // Makes a user join a given room. If the room does not exist, it is created

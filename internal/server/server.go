@@ -112,15 +112,14 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Split the host so that we can gather necessary info
-	parts := strings.Split(r.Host, ".")
-	if len(parts) < 3 {
+	// Split path so we can gather necessary info
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if len(parts) < 2 {
 		fmt.Println("Invalid request domain")
 		return
 	}
 	instanceId := parts[0]
-	url := r.URL
-	room := strings.TrimPrefix(url.Path, "/")
+	room := parts[1]
 
 	baseEvent := wsevents.WSEventInfo{
 		ConnectionId: connId.String(),
