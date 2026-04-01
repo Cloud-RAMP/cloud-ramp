@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/handlers"
+	_ "github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/server"
@@ -22,8 +26,16 @@ func main() {
 
 	parentCtx := context.Background()
 
+	if cfg.USE_FIRESTORE {
+		_, err = firestore.InitClient(parentCtx)
+		if err != nil {
+			fmt.Println("Failed to initialize firestore:", err)
+			os.Exit(1)
+		}
+	}
+
 	// These values will probably need to be changed later to ones that make sense for the system
-	sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
+	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    5 * time.Second,
 		MaxIdleTime:        6 * time.Second,
 		MemoryLimitPages:   10,
@@ -44,8 +56,17 @@ func main() {
 		// LoaderFunction: sandbox.LoaderFunction,
 		LoaderFunction: sandbox.DummyLoaderFunction,
 	})
+	if err != nil {
+		fmt.Println("Failed to initialize sandbox:", err)
+		os.Exit(1)
+	}
 
 	// Initialize redis client and start the server
-	redis.InitClient(parentCtx)
+	err = redis.InitClient(parentCtx)
+	if err != nil {
+		fmt.Println("Failed to initialize redis client:", err)
+		os.Exit(1)
+	}
+
 	server.Start(parentCtx)
 }

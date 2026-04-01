@@ -48,6 +48,20 @@ func getLogger(instanceId string) *slog.Logger {
 	return logger
 }
 
+func removeLogger(instanceId string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	delete(loggers, instanceId)
+
+	logFilePath := fmt.Sprintf("%s/%s.log", logsDir, instanceId)
+	if err := os.Remove(logFilePath); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func Error(instanceId, connectionId, info string) {
 	getLogger(instanceId).Error(info, "instanceID", instanceId, "connectionID", connectionId)
 }

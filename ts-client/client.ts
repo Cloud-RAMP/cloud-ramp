@@ -17,15 +17,19 @@ function ensureConnection(socket: WebSocket): Promise<void> {
 
 // "main" function
 (async () => {
-    // Establish initial connection
-    const socket = new WebSocket("ws://rP2gIxhkw7xHVpwGOX6g.cloudramp.org:8080/awkdhawdw");
-    await ensureConnection(socket);
-
-    // Receive the first message then close
-    socket.onmessage = (ev: MessageEvent) => {
-        console.log("Got message from server:", ev.data);
+    try {
+        // Establish initial connection
+        const socket = new WebSocket("ws://localhost:8080/rP2gIxhkw7xHVpwGOX6g/aaaa");
+        await ensureConnection(socket);
+    
+        // Receive the first message then close
+        socket.onmessage = (ev: MessageEvent) => {
+            console.log("Got message from server:", ev.data);
+        }
+    
+        // Send initial message once everything is ready
+        // socket.send("Hello server from TypeScript!");
+    } catch (e) {
+        console.log("Socket error:", e)
     }
-
-    // Send initial message once everything is ready
-    // socket.send("Hello server from TypeScript!");
 })()
