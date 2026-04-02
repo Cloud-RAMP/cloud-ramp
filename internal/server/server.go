@@ -170,6 +170,19 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	onConnectionError := func(err error) {
+		fmt.Println("Error writing:", err)
+		event := baseEvent
+		event.Timestamp = time.Now().UnixMilli()
+		event.EventType = wsevents.ON_ERROR
+		event.Payload = err.Error()
+		sandbox.Execute(ctx, &event)
+		redis.LeaveRoom(ctx, instanceId, room, connId.String())
+		ctxClose()
+		comm.CloseConn(instanceId, room, connId.String())
+		conn.Close()
+	}
+
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), onConnectionClose)
 	go func() {
 		// loop for duration of the connection
@@ -192,12 +205,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 
-					fmt.Println("Error reading:", err)
-					event := baseEvent
-					event.Timestamp = time.Now().UnixMilli()
-					event.EventType = wsevents.ON_ERROR
-					event.Payload = err.Error()
-					sandbox.Execute(ctx, &event)
+					onConnectionError(err)
 					return
 				}
 
@@ -223,12 +231,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 
-					fmt.Println("Error writing:", err)
-					event := baseEvent
-					event.Timestamp = time.Now().UnixMilli()
-					event.EventType = wsevents.ON_ERROR
-					event.Payload = err.Error()
-					sandbox.Execute(ctx, &event)
+					onConnectionError(err)
 					return
 				}
 			}
