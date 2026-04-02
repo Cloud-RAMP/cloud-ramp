@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
@@ -124,5 +125,24 @@ func SendMessage(ctx context.Context, instanceId, roomId, userId, dstUserId, mes
 		return err
 	}
 
+	return nil
+}
+
+// Send any commEvent. To be used in handler functions.
+//
+// To use this function, make sure the event you pass in has the Instance and Room fields set
+func SendCommEvent(ctx context.Context, event *comm.CommEvent) error {
+	if event == nil {
+		return fmt.Errorf("event is nil")
+	}
+
+	eventJson, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	if err = client.Publish(ctx, getEventKey(event.Instance, event.Room), eventJson).Err(); err != nil {
+		return err
+	}
 	return nil
 }
