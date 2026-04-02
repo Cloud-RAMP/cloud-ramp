@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
@@ -55,7 +56,10 @@ func handleExternalMessages(
 	commChan <-chan *comm.CommEvent,
 	redisChan <-chan *_redis.Message,
 	connId string,
+	onConnectionClose func(),
 ) {
+	defer onConnectionClose()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -92,6 +96,11 @@ func handleExternalMessages(
 			}
 
 			err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
+
+			// connection is closed. returns to that the onConnectionClose function will run
+			if event.EventType == comm.CLOSE_CONNECTION {
+				return
+			}
 		}
 	}
 }
@@ -145,68 +154,83 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	event.EventType = wsevents.ON_JOIN
 	sandbox.Execute(ctx, &event)
 
-	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String())
-	go func() {
-		// the defers will run most-recent first, so the ON_LEAVE func will be 1st
-		defer conn.Close()
-		defer comm.CloseConn(instanceId, room, connId.String())
-		defer ctxClose()
-		defer redis.LeaveRoom(ctx, instanceId, room, connId.String())
-		defer (func() {
+	// only execute cleanup code once
+	var once sync.Once
+	onConnectionClose := func() {
+		once.Do(func() {
+			fmt.Println("executing once")
 			event := baseEvent
 			event.Timestamp = time.Now().UnixMilli()
 			event.EventType = wsevents.ON_LEAVE
 			sandbox.Execute(ctx, &event)
-		})()
+			redis.LeaveRoom(ctx, instanceId, room, connId.String())
+			ctxClose()
+			comm.CloseConn(instanceId, room, connId.String())
+			conn.Close()
+		})
+	}
 
+	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), onConnectionClose)
+	go func() {
 		// loop for duration of the connection
 		for {
-			// Read data from the client on the connection
-			// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
-			msg, op, err := wsutil.ReadClientData(conn)
-			if err == io.EOF {
-				fmt.Println("Client disconnected")
+			select {
+			case <-ctx.Done():
 				return
-			} else if err != nil {
-				// Client disconnected
-				if err.Error() == LEAVE_ERROR {
+			default:
+				// Read data from the client on the connection
+				// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
+				msg, op, err := wsutil.ReadClientData(conn)
+				if err == io.EOF {
+					fmt.Println("Client disconnected")
+					onConnectionClose()
+					return
+				} else if err != nil {
+					// Client disconnected
+					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
+						onConnectionClose()
+						return
+					}
+
+					fmt.Println("Error reading:", err)
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.EventType = wsevents.ON_ERROR
+					event.Payload = err.Error()
+					sandbox.Execute(ctx, &event)
 					return
 				}
 
-				fmt.Println("Error reading:", err)
-				event := baseEvent
-				event.Timestamp = time.Now().UnixMilli()
-				event.EventType = wsevents.ON_ERROR
-				event.Payload = err.Error()
-				sandbox.Execute(ctx, &event)
-			}
+				if op.IsData() {
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.Payload = string(msg)
+					event.EventType = wsevents.ON_MESSAGE
 
-			if op.IsData() {
-				event := baseEvent
-				event.Timestamp = time.Now().UnixMilli()
-				event.Payload = string(msg)
-				event.EventType = wsevents.ON_MESSAGE
-
-				// execute logs any errors
-				sandbox.Execute(ctx, &event)
-			}
-
-			// Write a message to the client as the server (in this case, echo it)
-			err = wsutil.WriteServerMessage(conn, op, msg)
-			if err == io.EOF {
-				fmt.Println("Client disconnected")
-				return
-			} else if err != nil {
-				if err.Error() == LEAVE_ERROR {
-					return
+					// execute logs any errors
+					sandbox.Execute(ctx, &event)
 				}
 
-				fmt.Println("Error writing:", err)
-				event := baseEvent
-				event.Timestamp = time.Now().UnixMilli()
-				event.EventType = wsevents.ON_ERROR
-				event.Payload = err.Error()
-				sandbox.Execute(ctx, &event)
+				// Write a message to the client as the server (in this case, echo it)
+				err = wsutil.WriteServerMessage(conn, op, msg)
+				if err == io.EOF {
+					fmt.Println("Client disconnected")
+					onConnectionClose()
+					return
+				} else if err != nil {
+					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
+						onConnectionClose()
+						return
+					}
+
+					fmt.Println("Error writing:", err)
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.EventType = wsevents.ON_ERROR
+					event.Payload = err.Error()
+					sandbox.Execute(ctx, &event)
+					return
+				}
 			}
 		}
 	}()

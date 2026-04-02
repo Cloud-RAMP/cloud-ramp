@@ -52,6 +52,7 @@ func main() {
 			AddHandler(wasmevents.DEBUG, handlers.DebugHandler).
 			AddHandler(wasmevents.GET_USERS, handlers.GetUsersHandler).
 			AddHandler(wasmevents.SEND_MESSAGE, handlers.SendMessageHandler).
+			AddHandler(wasmevents.CLOSE_CONNECTION, handlers.CloseConnectionHandler).
 			AddHandler(wasmevents.FETCH, handlers.FetchHandler),
 		// LoaderFunction: sandbox.LoaderFunction,
 		LoaderFunction: sandbox.DummyLoaderFunction,

@@ -14,20 +14,23 @@ const (
 	BROADCAST
 	LEAVE
 	JOIN
+	CLOSE_CONNECTION
 )
 
 var commEventTypeToString = map[CommEventType]string{
-	SEND_MESSAGE: "SEND_MESSAGE",
-	BROADCAST:    "BROADCAST",
-	LEAVE:        "LEAVE",
-	JOIN:         "JOIN",
+	SEND_MESSAGE:     "SEND_MESSAGE",
+	BROADCAST:        "BROADCAST",
+	LEAVE:            "LEAVE",
+	JOIN:             "JOIN",
+	CLOSE_CONNECTION: "CLOSE_CONNECTION",
 }
 
 var stringToCommEventType = map[string]CommEventType{
-	"SEND_MESSAGE": SEND_MESSAGE,
-	"BROADCAST":    BROADCAST,
-	"LEAVE":        LEAVE,
-	"JOIN":         JOIN,
+	"SEND_MESSAGE":     SEND_MESSAGE,
+	"BROADCAST":        BROADCAST,
+	"LEAVE":            LEAVE,
+	"JOIN":             JOIN,
+	"CLOSE_CONNECTION": CLOSE_CONNECTION,
 }
 
 func (c CommEventType) MarshalJSON() ([]byte, error) {
