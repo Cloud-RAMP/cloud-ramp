@@ -69,3 +69,23 @@ func Close() error {
 	}
 	return client.Close()
 }
+
+func Delete(ctx context.Context, instanceId, roomId, key string) error {
+	c, err := Client()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.Collection("services").
+		Doc(instanceId).
+		Collection("rooms").
+		Doc(roomId).
+		Collection("data").
+		Doc(key).
+		Delete(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

@@ -22,6 +22,10 @@ func getUsersKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:users", comm.GetRoomKey(instanceId, roomId))
 }
 
+func getDataKey(instanceId, roomId, key string) string {
+	return fmt.Sprintf("%s:%s", comm.GetRoomKey(instanceId, roomId), key)
+}
+
 // Initialize the redis client. To be called on startup
 func InitClient(ctx context.Context) error {
 	redisURL := os.Getenv("REDIS_URL")
@@ -158,4 +162,10 @@ func GetAllUsers(ctx context.Context, instanceId, roomId string) ([]string, erro
 		return nil, err
 	}
 	return sMembersRes.Val(), nil
+}
+
+func Delete(ctx context.Context, instanceId, roomId, key string) error {
+	delKey := getDataKey(instanceId, roomId, key)
+	delRes := client.Del(ctx, delKey)
+	return delRes.Err()
 }

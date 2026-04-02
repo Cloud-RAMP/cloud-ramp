@@ -45,8 +45,10 @@ func main() {
 			AddHandler(wasmevents.ABORT, handlers.AbortHandler).
 			AddHandler(wasmevents.GET, handlers.GetHandler).
 			AddHandler(wasmevents.SET, handlers.SetHandler).
+			AddHandler(wasmevents.DEL, handlers.DelHandler).
 			AddHandler(wasmevents.DB_GET, handlers.DbGetHandler).
 			AddHandler(wasmevents.DB_SET, handlers.DbSetHandler).
+			AddHandler(wasmevents.DB_DEL, handlers.DbDelHandler).
 			AddHandler(wasmevents.BROADCAST, handlers.BroadcastHandler).
 			AddHandler(wasmevents.LOG, handlers.LogHandler).
 			AddHandler(wasmevents.DEBUG, handlers.DebugHandler).
