@@ -3,7 +3,7 @@ module github.com/Cloud-RAMP/cloud-ramp.git
 go 1.24.1
 
 require (
-	github.com/Cloud-RAMP/wasm-sandbox v0.0.0-20260311195328-fb246bdb4f88
+	github.com/Cloud-RAMP/wasm-sandbox v0.0.0-20260402210653-c81454de89dc
 	github.com/gobwas/ws v1.4.0
 )
 
@@ -55,4 +55,4 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 )
 
-replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox
+// replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox

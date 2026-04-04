@@ -34,6 +34,11 @@ func main() {
 		}
 	}
 
+	loader := sandbox.LoaderFunction
+	if cfg.USE_MOCK_LOADER {
+		loader = sandbox.DummyLoaderFunction
+	}
+
 	// These values will probably need to be changed later to ones that make sense for the system
 	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    5 * time.Second,
@@ -56,8 +61,7 @@ func main() {
 			AddHandler(wasmevents.SEND_MESSAGE, handlers.SendMessageHandler).
 			AddHandler(wasmevents.CLOSE_CONNECTION, handlers.CloseConnectionHandler).
 			AddHandler(wasmevents.FETCH, handlers.FetchHandler),
-		// LoaderFunction: sandbox.LoaderFunction,
-		LoaderFunction: sandbox.DummyLoaderFunction,
+		LoaderFunction: loader,
 	})
 	if err != nil {
 		fmt.Println("Failed to initialize sandbox:", err)

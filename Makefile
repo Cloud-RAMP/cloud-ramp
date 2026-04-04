@@ -14,5 +14,11 @@ run:
 run-client:
 	$(JS_CC) $(CLIENT)
 
+build-docker:
+	docker build -t cloud-ramp .
+
+run-docker:
+	docker run -p 8080:8080 --env-file .env cloud-ramp
+
 clean:
 	rm build

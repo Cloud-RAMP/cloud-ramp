@@ -8,3 +8,5 @@ package cfg
 const USE_FIRESTORE = false
 
 const LOG_DUMP_INTERVAL_SECONDS = 60
+
+const USE_MOCK_LOADER = true
