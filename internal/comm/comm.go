@@ -211,3 +211,21 @@ func GetEventChan(instanceId, roomId, connId string) <-chan *CommEvent {
 
 	return userChan
 }
+
+func UserOnSameNode(instanceId, roomId, connId string) bool {
+	roomKey := GetRoomKey(instanceId, roomId)
+
+	mu.Lock()
+	room, ok := commMap[roomKey]
+	mu.Unlock()
+
+	if !ok {
+		return false
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	_, ok = room.conns[connId]
+	return ok
+}
