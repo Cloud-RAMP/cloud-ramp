@@ -14,13 +14,23 @@ const (
 	BROADCAST
 	LEAVE
 	JOIN
+	CLOSE_CONNECTION
 )
 
 var commEventTypeToString = map[CommEventType]string{
-	SEND_MESSAGE: "SEND_MESSAGE",
-	BROADCAST:    "BROADCAST",
-	LEAVE:        "LEAVE",
-	JOIN:         "JOIN",
+	SEND_MESSAGE:     "SEND_MESSAGE",
+	BROADCAST:        "BROADCAST",
+	LEAVE:            "LEAVE",
+	JOIN:             "JOIN",
+	CLOSE_CONNECTION: "CLOSE_CONNECTION",
+}
+
+var stringToCommEventType = map[string]CommEventType{
+	"SEND_MESSAGE":     SEND_MESSAGE,
+	"BROADCAST":        BROADCAST,
+	"LEAVE":            LEAVE,
+	"JOIN":             JOIN,
+	"CLOSE_CONNECTION": CLOSE_CONNECTION,
 }
 
 func (c CommEventType) MarshalJSON() ([]byte, error) {
@@ -29,6 +39,21 @@ func (c CommEventType) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("invalid CommEventType: %d", c)
 	}
 	return json.Marshal(str)
+}
+
+func (c *CommEventType) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return fmt.Errorf("CommEventType must be a JSON string: %w", err)
+	}
+
+	eventType, ok := stringToCommEventType[str]
+	if !ok {
+		return fmt.Errorf("invalid CommEventType: %s", str)
+	}
+
+	*c = eventType
+	return nil
 }
 
 type CommEvent struct {
@@ -185,4 +210,22 @@ func GetEventChan(instanceId, roomId, connId string) <-chan *CommEvent {
 	}
 
 	return userChan
+}
+
+func UserOnSameNode(instanceId, roomId, connId string) bool {
+	roomKey := GetRoomKey(instanceId, roomId)
+
+	mu.Lock()
+	room, ok := commMap[roomKey]
+	mu.Unlock()
+
+	if !ok {
+		return false
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	_, ok = room.conns[connId]
+	return ok
 }

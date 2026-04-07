@@ -8,16 +8,15 @@ import (
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
 
-func BroadcastHandler(event *wasmevents.WASMEventInfo) (string, error) {
+func DelHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if len(event.Payload) < 1 {
-		return "", fmt.Errorf("No broadcast message specified")
+		return "", fmt.Errorf("No delete key provided")
 	}
 
-	return "", redis.Broadcast(
+	return "", redis.Delete(
 		context.Background(),
 		event.InstanceId,
 		event.RoomId,
-		event.ConnectionId,
 		event.Payload[0],
 	)
 }

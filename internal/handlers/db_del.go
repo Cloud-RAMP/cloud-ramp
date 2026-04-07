@@ -8,12 +8,12 @@ import (
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
 
-func DbGetHandler(event *wasmevents.WASMEventInfo) (string, error) {
+func DbDelHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if len(event.Payload) < 1 {
-		return "", fmt.Errorf("No get key provided")
+		return "", fmt.Errorf("No delete key provided")
 	}
 
-	return firestore.Get(
+	return "", firestore.Delete(
 		context.Background(),
 		event.InstanceId,
 		event.RoomId,

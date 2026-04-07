@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
-	"sync"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/redis/go-redis/v9"
@@ -34,18 +32,22 @@ func getDataKey(instanceId, roomId string) string {
 }
 
 // Initialize the redis client. To be called on startup
-func InitClient(ctx context.Context) {
+func InitClient(ctx context.Context) error {
 	redisURL := os.Getenv("REDIS_URL")
 	if redisURL == "" {
-		log.Fatal(".env does not contain a redis URL")
+		return fmt.Errorf("could not get REDIS_URL from .env")
 	}
 
 	options, err := redis.ParseURL(redisURL)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	client = redis.NewClient(options)
+	roomChans = make(map[string]*pubSub)
+
+	client.FlushAll(ctx)
+	return nil
 }
 
 // Makes a user join a given room. If the room does not exist, it is created
@@ -65,10 +67,14 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 	roomChansMu.Lock()
 	pubSub, ok := roomChans[key]
 	if !ok {
-		pubSub = client.Subscribe(ctx, eventKey)
+		redisPubSub := client.Subscribe(ctx, eventKey)
+		pubSub = initPubSub(redisPubSub)
 		roomChans[key] = pubSub
 	}
 	roomChansMu.Unlock()
+
+	// add the user to the pub/sub model and get the chan back
+	ch := pubSub.addUser(userId)
 
 	// publish initial JOIN event
 	// TODO: add user config to toggle this on / off
@@ -86,7 +92,7 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 	}
 
 	// return chan for calling process to read from
-	return pubSub.Channel(), nil
+	return ch, nil
 }
 
 // Removes a user from a room
@@ -122,56 +128,25 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId string) error {
 		}
 
 		delete(roomChans, key)
-		return pubSub.Close()
+		pubSub.removeUser(userId)
+		pubSub.cancel() // cancel context to terminate goroutine
+		return pubSub.dataChan.Close()
 	}
+
+	roomChansMu.Lock()
+	pubSub, ok := roomChans[key]
+	if ok {
+		pubSub.removeUser(userId)
+	}
+	roomChansMu.Unlock()
 
 	// Send leave event
 	// Similarly, add config to turn this on/off
 	event := comm.CommEvent{
 		DstConn:   "*",
 		SrcConn:   userId,
-		EventType: comm.LEAVE,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Broadcast a message to an entire room
-func Broadcast(ctx context.Context, instanceId, roomId, userId, message string) error {
-	event := comm.CommEvent{
-		DstConn:   "*",
-		SrcConn:   userId,
-		Payload:   message,
-		EventType: comm.BROADCAST,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Send a message that goes through redis
-//
-// This is only to be used if the destination user is not connected to the same node
-func SendMessage(ctx context.Context, instanceId, roomId, userId, dstUserId, message string) error {
-	event := comm.CommEvent{
 		Room:      roomId,
-		DstConn:   dstUserId,
-		SrcConn:   userId,
-		Payload:   message,
-		EventType: comm.SEND_MESSAGE,
+		EventType: comm.LEAVE,
 	}
 	eventJson, err := json.Marshal(event)
 	if err != nil {
@@ -195,7 +170,7 @@ func GetAllUsers(ctx context.Context, instanceId, roomId string) ([]string, erro
 }
 
 // Get the k/v store from a certain key from an instance/room
-func getDataValue(ctx context.Context, instanceId, roomId string, key string) string {
+func getDataValue(ctx context.Context, instanceId, roomId string, key string) (string, error) {
 	fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
 
 	value, err := client.Get(ctx, key).Result()
@@ -204,10 +179,16 @@ func getDataValue(ctx context.Context, instanceId, roomId string, key string) st
 }
 
 // Set the k/v store at a certain key at a given instance/room
-func setDataValue(ctx context.Context, instanceId, roomId string, key string, value string) {
+func setDataValue(ctx context.Context, instanceId, roomId string, key string, value string) error {
 	fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
 
 	err := client.Set(ctx, fullkey, value, 0).Err()
 
 	return err
+}
+
+func Delete(ctx context.Context, instanceId, roomId, key string) error {
+  fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
+	delRes := client.Del(ctx, fullKey)
+	return delRes.Err()
 }
