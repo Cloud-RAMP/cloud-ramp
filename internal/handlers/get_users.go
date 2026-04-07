@@ -5,5 +5,9 @@ import (
 )
 
 func GetUsersHandler(event *wasmevents.WASMEventInfo) (string, error) {
-	return "dummy", nil
-}
+	users, err := redis.GetAllUsers(context.Background(), event.InstanceId, event.RoomId)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(users, ","), nil
+}	
