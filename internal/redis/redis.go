@@ -12,6 +12,10 @@ import (
 
 var client *redis.Client
 
+// Strictly for pub/sub
+var roomChans map[string]*redis.PubSub
+var roomChansMu sync.Mutex
+
 // Returns the key for pub/sub for a given room
 func getEventKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:events", comm.GetRoomKey(instanceId, roomId))
@@ -22,8 +26,9 @@ func getUsersKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:users", comm.GetRoomKey(instanceId, roomId))
 }
 
-func getDataKey(instanceId, roomId, key string) string {
-	return fmt.Sprintf("%s:%s", comm.GetRoomKey(instanceId, roomId), key)
+//returns the key for data for a given room
+func getDataKey(instanceId, roomId string) string {
+	return fmt.Sprintf("%s:data", comm.GetRoomKey(instanceId, roomId))
 }
 
 // Initialize the redis client. To be called on startup
@@ -164,8 +169,26 @@ func GetAllUsers(ctx context.Context, instanceId, roomId string) ([]string, erro
 	return sMembersRes.Val(), nil
 }
 
+// Get the k/v store from a certain key from an instance/room
+func getDataValue(ctx context.Context, instanceId, roomId string, key string) (string, error) {
+	fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
+
+	value, err := client.Get(ctx, key).Result()
+	
+	return value, err
+}
+
+// Set the k/v store at a certain key at a given instance/room
+func setDataValue(ctx context.Context, instanceId, roomId string, key string, value string) error {
+	fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
+
+	err := client.Set(ctx, fullkey, value, 0).Err()
+
+	return err
+}
+
 func Delete(ctx context.Context, instanceId, roomId, key string) error {
-	delKey := getDataKey(instanceId, roomId, key)
-	delRes := client.Del(ctx, delKey)
+  fullkey := fmt.Sprintf("%s:%s", getDataKey(instanceId, roomId), key)
+	delRes := client.Del(ctx, fullKey)
 	return delRes.Err()
 }

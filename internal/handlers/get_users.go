@@ -13,6 +13,6 @@ func GetUsersHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
+  
 	return strings.Join(users, ","), nil
-}
+}	

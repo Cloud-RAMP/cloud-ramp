@@ -5,5 +5,15 @@ import (
 )
 
 func SetHandler(event *wasmevents.WASMEventInfo) (string, error) {
-	return "dummy", nil
+	if len(event.Payload) < 2 {
+		return "", fmt.Errorf("Need to provide a key and value")
+	}
+
+	return "", redis.setDataValue(
+		context.Background(), 
+		event.InstanceId, 
+		event.RoomId, 
+		event.Payload[0],
+		event.Payload[1]
+	)
 }
