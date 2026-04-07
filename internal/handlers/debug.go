@@ -11,5 +11,5 @@ func DebugHandler(event *wasmevents.WASMEventInfo) (string, error) {
 		fmt.Println("User called debug:", event.Payload[0])
 	}
 
-	return "dummy", nil
+	return "", nil
 }

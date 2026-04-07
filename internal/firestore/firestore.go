@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 
+	"cloud.google.com/go/firestore"
 	gfirestore "cloud.google.com/go/firestore"
 	"google.golang.org/api/option"
 )
@@ -80,9 +81,53 @@ func Delete(ctx context.Context, instanceId, roomId, key string) error {
 		Doc(instanceId).
 		Collection("rooms").
 		Doc(roomId).
-		Collection("data").
-		Doc(key).
-		Delete(ctx)
+		Update(ctx, []firestore.Update{
+			{Path: key, Value: firestore.Delete},
+		})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func Get(ctx context.Context, instanceId, roomId, key string) (string, error) {
+	c, err := Client()
+	if err != nil {
+		return "", err
+	}
+
+	snap, err := c.Collection("services").
+		Doc(instanceId).
+		Collection("rooms").
+		Doc(roomId).
+		Get(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	data := snap.Data()
+	val, ok := data[key]
+	if !ok {
+		return "", fmt.Errorf("Key not found")
+	}
+
+	return fmt.Sprintf("%v", val), nil
+}
+
+func Set(ctx context.Context, instanceId, roomId, key, value string) error {
+	c, err := Client()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.Collection("services").
+		Doc(instanceId).
+		Collection("rooms").
+		Doc(roomId).
+		Set(ctx, map[string]any{
+			key: value,
+		}, firestore.MergeAll)
 	if err != nil {
 		return err
 	}
