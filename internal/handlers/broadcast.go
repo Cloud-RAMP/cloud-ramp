@@ -15,8 +15,6 @@ func BroadcastHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	}
 	logger.WASMEvent(event)
 
-	logger.WASMEvent(event)
-
 	return "", redis.Broadcast(
 		context.Background(),
 		event.InstanceId,
