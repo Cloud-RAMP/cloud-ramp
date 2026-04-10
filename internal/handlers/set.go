@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
@@ -12,6 +13,7 @@ func SetHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if len(event.Payload) < 2 {
 		return "", fmt.Errorf("Need to provide a key and value")
 	}
+	logger.WASMEvent(event)
 
 	return "", redis.SetDataValue(
 		context.Background(),

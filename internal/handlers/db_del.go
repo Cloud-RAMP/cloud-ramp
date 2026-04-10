@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
 
@@ -12,6 +13,7 @@ func DbDelHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if len(event.Payload) < 1 {
 		return "", fmt.Errorf("No delete key provided")
 	}
+	logger.WASMEvent(event)
 
 	return "", firestore.Delete(
 		context.Background(),

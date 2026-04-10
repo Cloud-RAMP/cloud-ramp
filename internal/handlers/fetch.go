@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
 
@@ -13,6 +14,7 @@ func FetchHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	if len(event.Payload) < 2 {
 		return "", fmt.Errorf("Request is missing URL or HTTP method")
 	}
+	logger.WASMEvent(event)
 
 	url := event.Payload[0]
 	method := event.Payload[1]

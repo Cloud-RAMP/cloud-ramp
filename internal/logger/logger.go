@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -62,10 +63,6 @@ func removeLogger(instanceId string) error {
 	return nil
 }
 
-func Error(instanceId, connectionId, info string) {
-	getLogger(instanceId).Error(info, "instanceID", instanceId, "connectionID", connectionId)
-}
-
 func Warn(instanceId, connectionId, info string) {
 	getLogger(instanceId).Warn(info, "instanceID", instanceId, "connectionID", connectionId)
 }
@@ -120,4 +117,12 @@ func NewConnection(instanceId, ip, connectionId, roomId string) {
 		"ip",
 		ip,
 	)
+}
+
+func Info(instanceId string, msg string, attrs ...slog.Attr) {
+	getLogger(instanceId).LogAttrs(context.Background(), slog.LevelInfo, msg, attrs...)
+}
+
+func Error(instanceId string, msg string, attrs ...slog.Attr) {
+	getLogger(instanceId).LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
 }
