@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
@@ -56,6 +58,7 @@ func handleExternalMessages(
 	commChan <-chan *comm.CommEvent,
 	redisChan <-chan *_redis.Message,
 	connId string,
+	instanceId string,
 	onConnectionClose func(),
 ) {
 	defer onConnectionClose()
@@ -72,7 +75,10 @@ func handleExternalMessages(
 			// Send data to the connection
 			json, err := json.Marshal(commEvent)
 			if err != nil {
-				fmt.Println("Failed to marshal local communication json:", err)
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %e", err), slog.Attr{
+					Key:   "connectionId",
+					Value: slog.StringValue(connId),
+				})
 				continue
 			}
 
@@ -86,7 +92,10 @@ func handleExternalMessages(
 			event := &comm.CommEvent{}
 			err := json.Unmarshal([]byte(redisEvent.Payload), event)
 			if err != nil {
-				fmt.Println("Failed to marshal json:", err)
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal redis json: %e", err), slog.Attr{
+					Key:   "connectionId",
+					Value: slog.StringValue(connId),
+				})
 				continue
 			}
 
@@ -136,6 +145,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		InstanceId:   instanceId,
 	}
 
+	logger.NewConnection(instanceId, r.RemoteAddr, connId.String(), room)
+
 	// Background context for goroutine
 	ctx, ctxClose := context.WithCancel(context.Background())
 
@@ -144,6 +155,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
 	if err != nil {
 		fmt.Printf("Connection %s failed to join redis room: %v\n", connId, err)
+		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
 		ctxClose()
 		return
 	}
@@ -152,13 +164,28 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	event := baseEvent
 	event.Timestamp = time.Now().UnixMilli()
 	event.EventType = wsevents.ON_JOIN
-	sandbox.Execute(ctx, &event)
+	if err = sandbox.Execute(ctx, &event); err != nil {
+		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+			Key:   "connectionId",
+			Value: slog.StringValue(connId.String()),
+		}, slog.Attr{
+			Key:   "roomId",
+			Value: slog.StringValue(room),
+		})
+	}
 
 	// only execute cleanup code once
 	var once sync.Once
 	onConnectionClose := func() {
 		once.Do(func() {
-			fmt.Println("executing once")
+			logger.Info(instanceId, "Client disconnected", slog.Attr{
+				Key:   "connectionId",
+				Value: slog.StringValue(connId.String()),
+			}, slog.Attr{
+				Key:   "roomId",
+				Value: slog.StringValue(room),
+			})
+
 			event := baseEvent
 			event.Timestamp = time.Now().UnixMilli()
 			event.EventType = wsevents.ON_LEAVE
@@ -172,6 +199,13 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	onConnectionError := func(err error) {
 		fmt.Println("Error writing:", err)
+		logger.Info(instanceId, fmt.Sprintf("Client error writing: %e", err), slog.Attr{
+			Key:   "connectionId",
+			Value: slog.StringValue(connId.String()),
+		}, slog.Attr{
+			Key:   "roomId",
+			Value: slog.StringValue(room),
+		})
 		event := baseEvent
 		event.Timestamp = time.Now().UnixMilli()
 		event.EventType = wsevents.ON_ERROR
@@ -183,7 +217,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 	}
 
-	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), onConnectionClose)
+	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), instanceId, onConnectionClose)
 	go func() {
 		// loop for duration of the connection
 		for {
@@ -215,8 +249,27 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					event.Payload = string(msg)
 					event.EventType = wsevents.ON_MESSAGE
 
+					logger.Info(instanceId, "New message", slog.Attr{
+						Key:   "connectionId",
+						Value: slog.StringValue(connId.String()),
+					}, slog.Attr{
+						Key:   "roomId",
+						Value: slog.StringValue(room),
+					}, slog.Attr{
+						Key:   "payload",
+						Value: slog.StringValue(string(msg)),
+					})
+
 					// execute logs any errors
-					sandbox.Execute(ctx, &event)
+					if err = sandbox.Execute(ctx, &event); err != nil {
+						logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+							Key:   "connectionId",
+							Value: slog.StringValue(connId.String()),
+						}, slog.Attr{
+							Key:   "roomId",
+							Value: slog.StringValue(room),
+						})
+					}
 				}
 
 				// Write a message to the client as the server (in this case, echo it)
