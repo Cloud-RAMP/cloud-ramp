@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-
-	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
+	"time"
 )
 
 func getRateKey(ip string) string {
@@ -21,6 +20,10 @@ func GetCurrentRequests(ip string) (int, error) {
 	}
 
 	numReqsString := getResp.Val()
+	if numReqsString == "" {
+		return 0, nil
+	}
+
 	numReqs, err := strconv.Atoi(numReqsString)
 	if err != nil {
 		return 0, err
@@ -29,8 +32,8 @@ func GetCurrentRequests(ip string) (int, error) {
 	return numReqs, nil
 }
 
-func SetCurrentRequests(ip string, numReqs int) error {
+func SetCurrentRequests(ip string, numReqs int, ttl time.Duration) error {
 	key := getRateKey(ip)
 
-	return client.Set(context.Background(), key, numReqs, cfg.RATE_TTL).Err()
+	return client.Set(context.Background(), key, numReqs, ttl).Err()
 }
