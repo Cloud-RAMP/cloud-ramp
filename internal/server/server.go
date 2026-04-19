@@ -120,20 +120,21 @@ func handleExternalMessages(
 
 func SendFailure(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(500)
+	fmt.Fprintf(w, "Failed to establish WebSocket connection")
 }
 
 // Connection handler function
 func handleConnection(w http.ResponseWriter, r *http.Request) {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		fmt.Println("SERVER ERROR: Error gathering IP address", err)
+		fmt.Println("[SERVER ERROR] gathering IP address:", err)
 		SendFailure(w, r)
 		return
 	}
 
 	backoff, err := limiter.RegisterNewConnection(ip)
 	if err != nil {
-		fmt.Println("SERVER ERROR: register new rate limiter connection")
+		fmt.Println("[SERVER ERROR] register new rate limiter connection:", err)
 		SendFailure(w, r)
 		return
 	}
@@ -145,7 +146,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Updagrade the HTTP connection to WS
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
-		fmt.Println("SERVER ERROR: Error upgrading protocols", err)
+		fmt.Println("[SERVER ERROR] upgrading protocols:", err)
 		SendFailure(w, r)
 		return
 	}
@@ -153,7 +154,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Create new unique client id
 	connId, err := uuid.NewV7()
 	if err != nil {
-		fmt.Println("SERVER ERROR: Failed to create uuid", err)
+		fmt.Println("[SERVER ERROR] Failed to create uuid:", err)
 		conn.Close()
 		return
 	}
@@ -161,7 +162,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Split path so we can gather necessary info (instanceId, room)
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) < 2 {
-		fmt.Println("SERVER ERROR: Invalid request domain", err)
+		fmt.Println("[SERVER ERROR] Invalid request domain:", err)
 		conn.Close()
 		return
 	}
@@ -220,6 +221,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			event.Timestamp = time.Now().UnixMilli()
 			event.EventType = wsevents.ON_LEAVE
 			sandbox.Execute(ctx, &event)
+
+			limiter.DumpConnectionRequests(ip)
 			redis.LeaveRoom(ctx, instanceId, room, connId.String())
 			ctxClose()
 			comm.CloseConn(instanceId, room, connId.String())
@@ -241,12 +244,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		event.EventType = wsevents.ON_ERROR
 		event.Payload = err.Error()
 		sandbox.Execute(ctx, &event)
+
+		limiter.DumpConnectionRequests(ip)
 		redis.LeaveRoom(ctx, instanceId, room, connId.String())
 		ctxClose()
 		comm.CloseConn(instanceId, room, connId.String())
 		conn.Close()
 	}
 
+	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), instanceId, onConnectionClose)
 	go func() {
 		// loop for duration of the connection

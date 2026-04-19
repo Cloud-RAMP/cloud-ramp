@@ -73,6 +73,8 @@ func RegisterNewConnection(ip string) (bool, error) {
 		return false, err
 	}
 
+	currentRequests++
+
 	mu.Lock()
 	rateMap[ip] = RateMapEntry{
 		NumRequests: currentRequests,
@@ -109,4 +111,21 @@ func RegisterNewRequest(ip string) bool {
 	}
 
 	return false
+}
+
+// To be called when a client disconnects
+//
+// Dump their rate info to redis
+func DumpConnectionRequests(ip string) error {
+	mu.Lock()
+	info, ok := rateMap[ip]
+	mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	sinceLastRequest := time.Since(info.LastRequest)
+	ttl := min(cfg.RATE_TTL, sinceLastRequest)
+	return redis.SetCurrentRequests(ip, info.NumRequests, ttl)
 }

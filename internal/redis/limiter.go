@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 func getRateKey(ip string) string {
@@ -15,6 +17,9 @@ func GetCurrentRequests(ip string) (int, error) {
 	key := getRateKey(ip)
 
 	getResp := client.Get(context.Background(), key)
+	if getResp.Err() == redis.Nil {
+		return 0, nil
+	}
 	if getResp.Err() != nil {
 		return 0, getResp.Err()
 	}
