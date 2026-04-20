@@ -19,13 +19,16 @@ import (
 )
 
 func main() {
+	fmt.Println("Loading environment variables")
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("No .env file found")
+		os.Exit(1)
 	}
 
 	parentCtx := context.Background()
 
+	fmt.Println("Initializing firestore")
 	if cfg.USE_FIRESTORE {
 		_, err = firestore.InitClient(parentCtx)
 		if err != nil {
@@ -39,6 +42,7 @@ func main() {
 		loader = sandbox.DummyLoaderFunction
 	}
 
+	fmt.Println("Initializing sandbox")
 	// These values will probably need to be changed later to ones that make sense for the system
 	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    5 * time.Second,
@@ -68,6 +72,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	fmt.Println("Connecting to redis")
 	// Initialize redis client and start the server
 	err = redis.InitClient(parentCtx)
 	if err != nil {
@@ -75,5 +80,6 @@ func main() {
 		os.Exit(1)
 	}
 
+	fmt.Println("Starting server")
 	server.Start(parentCtx)
 }

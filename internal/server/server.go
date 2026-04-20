@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/limiter"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
@@ -52,6 +53,9 @@ func Start(ctx context.Context) {
 	server.Shutdown(ctx)
 }
 
+// Helper function to be detached in a separate goroutine and handle connections from outside sources
+//
+// Messages can come from either redis or the same server
 func handleExternalMessages(
 	ctx context.Context,
 	conn net.Conn,
@@ -114,31 +118,58 @@ func handleExternalMessages(
 	}
 }
 
+func SendFailure(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(500)
+	fmt.Fprintf(w, "Failed to establish WebSocket connection")
+}
+
 // Connection handler function
 func handleConnection(w http.ResponseWriter, r *http.Request) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		fmt.Println("[SERVER ERROR] gathering IP address:", err)
+		SendFailure(w, r)
+		return
+	}
+
+	backoff, err := limiter.RegisterNewConnection(ip)
+	if err != nil {
+		fmt.Println("[SERVER ERROR] register new rate limiter connection:", err)
+		SendFailure(w, r)
+		return
+	}
+	if backoff {
+		limiter.BackoffHTTP(w, r)
+		return
+	}
+
 	// Updagrade the HTTP connection to WS
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
-		fmt.Println("Error upgrading protocols")
+		fmt.Println("[SERVER ERROR] upgrading protocols:", err)
+		SendFailure(w, r)
 		return
 	}
 
 	// Create new unique client id
 	connId, err := uuid.NewV7()
 	if err != nil {
-		fmt.Println("Failed to create uuid")
+		fmt.Println("[SERVER ERROR] Failed to create uuid:", err)
+		conn.Close()
 		return
 	}
 
-	// Split path so we can gather necessary info
+	// Split path so we can gather necessary info (instanceId, room)
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) < 2 {
-		fmt.Println("Invalid request domain")
+		fmt.Println("[SERVER ERROR] Invalid request domain:", err)
+		conn.Close()
 		return
 	}
 	instanceId := parts[0]
 	room := parts[1]
 
+	// construct a base event that we will modify to send to WebAssembly
 	baseEvent := wsevents.WSEventInfo{
 		ConnectionId: connId.String(),
 		RoomId:       room,
@@ -190,6 +221,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			event.Timestamp = time.Now().UnixMilli()
 			event.EventType = wsevents.ON_LEAVE
 			sandbox.Execute(ctx, &event)
+
+			limiter.DumpConnectionRequests(ip)
 			redis.LeaveRoom(ctx, instanceId, room, connId.String())
 			ctxClose()
 			comm.CloseConn(instanceId, room, connId.String())
@@ -211,12 +244,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		event.EventType = wsevents.ON_ERROR
 		event.Payload = err.Error()
 		sandbox.Execute(ctx, &event)
+
+		limiter.DumpConnectionRequests(ip)
 		redis.LeaveRoom(ctx, instanceId, room, connId.String())
 		ctxClose()
 		comm.CloseConn(instanceId, room, connId.String())
 		conn.Close()
 	}
 
+	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), instanceId, onConnectionClose)
 	go func() {
 		// loop for duration of the connection
@@ -243,6 +279,32 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
+				// Check rate limiter, do we need to backoff?
+				backoff := limiter.RegisterNewRequest(ip)
+				if backoff {
+					if err := limiter.BackoffWS(conn); err != nil {
+						onConnectionError(err)
+						return
+					}
+
+					logger.Info(instanceId, "Rate limit", slog.Attr{
+						Key:   "connectionId",
+						Value: slog.StringValue(connId.String()),
+					}, slog.Attr{
+						Key:   "IP",
+						Value: slog.StringValue(ip),
+					}, slog.Attr{
+						Key:   "roomId",
+						Value: slog.StringValue(room),
+					}, slog.Attr{
+						Key:   "payload",
+						Value: slog.StringValue(string(msg)),
+					})
+
+					continue
+				}
+
+				// user sent actual data
 				if op.IsData() {
 					event := baseEvent
 					event.Timestamp = time.Now().UnixMilli()
