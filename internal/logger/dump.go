@@ -20,17 +20,20 @@ func init() {
 	ticker := time.NewTicker(cfg.LOG_DUMP_INTERVAL_SECONDS * time.Second)
 	go func() {
 		for range ticker.C {
-			OnDump()
+			err := OnDump()
+			if err != nil {
+				ServerError("Dumping logs", err)
+			}
 		}
 	}()
 }
 
-func OnDump() {
+func OnDump() error {
 	const root = "/tmp/cloudramp/logs"
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			return nil
@@ -39,22 +42,20 @@ func OnDump() {
 		// invalid file present?
 		nameSplit := strings.Split(d.Name(), ".")
 		if len(nameSplit) != 2 {
-			return nil
+			return fmt.Errorf("Invalid filename: %s", d.Name())
 		}
 		if nameSplit[0] == "" || nameSplit[0] == "unknown" {
-			return nil
+			return fmt.Errorf("Invalid filename: %s", d.Name())
 		}
 
 		if err = dumpSingleServiceLogs(path, nameSplit[0]); err != nil {
-			fmt.Println("Failed to dump service logs:", nameSplit[0], err)
-			return nil
+			return err
 		}
 
 		return nil
 	})
-	if err != nil {
-		fmt.Println("Logger failed to walk log directory")
-	}
+
+	return err
 }
 
 func dumpSingleServiceLogs(path, instanceId string) error {

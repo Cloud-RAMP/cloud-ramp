@@ -11,6 +11,7 @@ import (
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/handlers"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	_ "github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
@@ -21,7 +22,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Loading environment variables")
+	logger.ServerInfo("Loading environment variables")
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("No .env file found")
@@ -30,32 +31,33 @@ func main() {
 
 	parentCtx, cancel := context.WithCancel(context.Background())
 
-	fmt.Println("Installing signal handler")
+	logger.ServerInfo("Installing signal handler")
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		signal := <-c // wait for OS signal
-		fmt.Println("Got signal:", signal)
+		logger.ServerInfo(fmt.Sprintf("Program got signal: %s", signal))
+		logger.ServerInfo("Beginning shutdown process")
 
 		// stop server. the StartServer method of the server package has the remainder of the logic
 		cancel()
 	}()
 
-	fmt.Println("Initializing firestore")
+	logger.ServerInfo("Initializing firestore")
 	if cfg.USE_FIRESTORE {
 		_, err = firestore.InitClient(parentCtx)
 		if err != nil {
-			fmt.Println("Failed to initialize firestore:", err)
+			logger.ServerError("Failed to initialize firestore:", err)
 			os.Exit(1)
 		}
 	}
 
+	logger.ServerInfo("Initializing sandbox")
 	loader := sandbox.LoaderFunction
 	if cfg.USE_MOCK_LOADER {
 		loader = sandbox.DummyLoaderFunction
 	}
 
-	fmt.Println("Initializing sandbox")
 	// These values will probably need to be changed later to ones that make sense for the system
 	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    5 * time.Second,
@@ -81,18 +83,18 @@ func main() {
 		LoaderFunction: loader,
 	})
 	if err != nil {
-		fmt.Println("Failed to initialize sandbox:", err)
+		logger.ServerError("Failed to initialize sandbox:", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Connecting to redis")
+	logger.ServerInfo("Connecting to redis")
 	// Initialize redis client and start the server
 	err = redis.InitClient(parentCtx)
 	if err != nil {
-		fmt.Println("Failed to initialize redis client:", err)
+		logger.ServerError("Failed to initialize redis client:", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("Starting server")
+	logger.ServerInfo("Starting server")
 	server.Start(parentCtx)
 }

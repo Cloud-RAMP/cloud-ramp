@@ -16,28 +16,31 @@
 package limiter
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 )
 
-type RateMapEntry struct {
+type rateMapEntry struct {
 	NumRequests int
 	Connected   bool
 	LastRequest time.Time
 	WindowStart time.Time
 }
 
-var rateMap map[string]RateMapEntry = make(map[string]RateMapEntry)
+var rateMap map[string]rateMapEntry = make(map[string]rateMapEntry)
 
 // Initialize service to dump connection information to redis on timeout
 func init() {
 	ticker := time.NewTicker(cfg.RATE_DUMP)
 	go func() {
 		for range ticker.C {
-			OnDump()
+			err := OnDump()
+			if err != nil {
+				logger.ServerError("Automated rate dump", err)
+			}
 		}
 	}()
 }
@@ -45,8 +48,10 @@ func init() {
 // Dump all current rate information redis
 //
 // Also clear out any disconnections
-func OnDump() {
+func OnDump() error {
 	lockAll()
+	defer unlockAll()
+
 	for k, entry := range rateMap {
 		// wipe users who aren't connected and TTL has expired
 		if !entry.Connected && time.Since(entry.WindowStart) >= cfg.RATE_TTL {
@@ -60,12 +65,12 @@ func OnDump() {
 		// only send our data to redis if TTL is non-negative
 		if ttl > 0 {
 			if err := redis.SetCurrentRequests(k, entry.NumRequests, ttl); err != nil {
-				fmt.Println("SERVER ERROR: setting current requests in redis")
+				return err
 			}
 		}
 	}
 
-	unlockAll()
+	return nil
 }
 
 // To be called when a new connection joins
@@ -82,7 +87,7 @@ func RegisterNewConnection(ip string) (bool, error) {
 
 	entry, ok := rateMap[ip]
 	if !ok {
-		rateMap[ip] = RateMapEntry{
+		rateMap[ip] = rateMapEntry{
 			NumRequests: currentRequests,
 			LastRequest: time.Now(),
 			WindowStart: time.Now(),

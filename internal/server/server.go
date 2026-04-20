@@ -29,8 +29,6 @@ import (
 
 const LEAVE_ERROR = "ws closed: 1005 "
 
-var ServerWaitGroup sync.WaitGroup
-
 // Define start method here so that we can use it in testing
 //
 // It's a good habit to use these "ctx" objects, since they give us fine grained
@@ -42,10 +40,10 @@ func Start(ctx context.Context) {
 	}
 
 	go func() {
-		fmt.Println("Server listening on", server.Addr)
+		logger.ServerInfo("Server listening on :8080")
 		err := server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
-			fmt.Println("Error starting server", err)
+			logger.ServerError("Starting server", err)
 			return
 		}
 	}()
@@ -58,12 +56,20 @@ func Start(ctx context.Context) {
 	server.Shutdown(shutdownCtx)
 
 	if cfg.USE_FIRESTORE {
-		fmt.Println("Dumping logs")
-		logger.OnDump()
+		logger.ServerInfo("Dumping logs")
+		err := logger.OnDump()
+		if err != nil {
+			logger.ServerError("Dumping logs in shutdown", err)
+		}
 	}
 
-	fmt.Println("Dumping rate limits")
-	limiter.OnDump()
+	logger.ServerInfo("Dumping limiter")
+	err := limiter.OnDump()
+	if err != nil {
+		logger.ServerError("Dumping limiter in shutdown", err)
+	}
+
+	logger.ServerInfo("Shutdown complete")
 }
 
 // Helper function to be detached in a separate goroutine and handle connections from outside sources
@@ -138,19 +144,16 @@ func SendFailure(w http.ResponseWriter, r *http.Request) {
 
 // Connection handler function
 func handleConnection(w http.ResponseWriter, r *http.Request) {
-	ServerWaitGroup.Add(1)
-	defer ServerWaitGroup.Done()
-
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		fmt.Println("[SERVER ERROR] gathering IP address:", err)
+		logger.ServerError("gathering IP address:", err)
 		SendFailure(w, r)
 		return
 	}
 
 	backoff, err := limiter.RegisterNewConnection(ip)
 	if err != nil {
-		fmt.Println("[SERVER ERROR] register new rate limiter connection:", err)
+		logger.ServerError("register new rate limiter connection:", err)
 		SendFailure(w, r)
 		return
 	}
@@ -162,7 +165,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Updagrade the HTTP connection to WS
 	conn, _, _, err := ws.UpgradeHTTP(r, w)
 	if err != nil {
-		fmt.Println("[SERVER ERROR] upgrading protocols:", err)
+		logger.ServerError("upgrading protocols:", err)
 		SendFailure(w, r)
 		return
 	}
@@ -170,7 +173,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Create new unique client id
 	connId, err := uuid.NewV7()
 	if err != nil {
-		fmt.Println("[SERVER ERROR] Failed to create uuid:", err)
+		logger.ServerError("Failed to create uuid:", err)
 		conn.Close()
 		return
 	}
@@ -178,7 +181,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	// Split path so we can gather necessary info (instanceId, room)
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) < 2 {
-		fmt.Println("[SERVER ERROR] Invalid request domain:", err)
+		logger.ServerError("Invalid request domain:", err)
 		conn.Close()
 		return
 	}
@@ -201,7 +204,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	commChan := comm.InitConn(instanceId, room, connId.String())
 	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
 	if err != nil {
-		fmt.Printf("Connection %s failed to join redis room: %v\n", connId, err)
 		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
 		ctxClose()
 		return
@@ -247,7 +249,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	onConnectionError := func(err error) {
-		fmt.Println("Error writing:", err)
+		logger.ServerError("WebSocket write failed", err)
 		logger.Info(instanceId, fmt.Sprintf("Client error writing: %e", err), slog.Attr{
 			Key:   "connectionId",
 			Value: slog.StringValue(connId.String()),
