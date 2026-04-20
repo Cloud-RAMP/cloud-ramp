@@ -17,7 +17,6 @@ package limiter
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
@@ -26,48 +25,54 @@ import (
 
 type RateMapEntry struct {
 	NumRequests int
+	Connected   bool
 	LastRequest time.Time
+	WindowStart time.Time
 }
 
 var rateMap map[string]RateMapEntry = make(map[string]RateMapEntry)
-var mu sync.Mutex = sync.Mutex{}
 
-// Initialize service to dump connection information to redis
+// Initialize service to dump connection information to redis on timeout
 func init() {
 	ticker := time.NewTicker(cfg.RATE_DUMP)
 	go func() {
 		for range ticker.C {
-			handleRedisDump()
+			dumpAndCleanMap()
 		}
 	}()
 }
 
-// Dump current information on connections to redis
-func handleRedisDump() {
-	fmt.Println("Dumping rate info to redis")
+// Dump all current rate information redis
+//
+// Also clear out any disconnections
+func dumpAndCleanMap() {
+	lockAll()
+	for k, entry := range rateMap {
+		// wipe users who aren't connected and TTL has expired
+		if !entry.Connected && time.Since(entry.WindowStart) >= cfg.RATE_TTL {
+			delete(rateMap, k)
+			continue
+		}
 
-	mu.Lock()
-	var wg sync.WaitGroup
+		// TTL of redis will be the default TTL - time since the window started
+		ttl := cfg.RATE_TTL - time.Since(entry.WindowStart)
 
-	for k, v := range rateMap {
-		sinceLastRequest := time.Since(v.LastRequest)
-		ttl := min(cfg.RATE_TTL, sinceLastRequest)
-
-		wg.Add(1)
-		go func() {
-			fmt.Printf("%s requests: %d\n", k, v.NumRequests)
-			if err := redis.SetCurrentRequests(k, v.NumRequests, ttl); err != nil {
+		// only send our data to redis if TTL is non-negative
+		if ttl > 0 {
+			if err := redis.SetCurrentRequests(k, entry.NumRequests, ttl); err != nil {
 				fmt.Println("SERVER ERROR: setting current requests in redis")
 			}
-			wg.Done()
-		}()
+		}
 	}
 
-	wg.Wait()
-	mu.Unlock()
+	unlockAll()
 }
 
+// To be called when a new connection joins
+//
+// Fetch existing rate limiting data from redis, backoff if necessary
 func RegisterNewConnection(ip string) (bool, error) {
+	locks.lock(ip)
 	currentRequests, err := redis.GetCurrentRequests(ip)
 	if err != nil {
 		return false, err
@@ -75,12 +80,21 @@ func RegisterNewConnection(ip string) (bool, error) {
 
 	currentRequests++
 
-	mu.Lock()
-	rateMap[ip] = RateMapEntry{
-		NumRequests: currentRequests,
-		LastRequest: time.Now(),
+	entry, ok := rateMap[ip]
+	if !ok {
+		rateMap[ip] = RateMapEntry{
+			NumRequests: currentRequests,
+			LastRequest: time.Now(),
+			WindowStart: time.Now(),
+			Connected:   true,
+		}
+	} else {
+		entry.Connected = true
+		entry.NumRequests = currentRequests
+		rateMap[ip] = entry
 	}
-	mu.Unlock()
+
+	locks.unlock(ip)
 
 	if currentRequests > cfg.MAX_REQUESTS_PER_WINDOW {
 		return true, nil
@@ -92,21 +106,32 @@ func RegisterNewConnection(ip string) (bool, error) {
 // Call this function on every new request to see if a backoff is necessary
 //
 // If so, call one of the limiter.Backoff functions (depending on if you are HTTP or WS connection)
+//
+// The user will be rate limited if:
+//   - They have exceeded the max number of reqeusts AND
+//   - The time since their window started is less than the max
+//
+// The window will be reset if:
+//   - The time since the start of their window is >= than the max
+//   - If the window is reset, their number of requests sent is reset as well
 func RegisterNewRequest(ip string) bool {
-	mu.Lock()
+	locks.lock(ip)
 	mapEntry := rateMap[ip]
-	mu.Unlock()
-
-	mapEntry.NumRequests++
 
 	defer func() {
+		mapEntry.NumRequests++
 		mapEntry.LastRequest = time.Now()
-		mu.Lock()
 		rateMap[ip] = mapEntry
-		mu.Unlock()
+		locks.unlock(ip)
 	}()
 
-	if mapEntry.NumRequests >= cfg.MAX_REQUESTS_PER_WINDOW && time.Since(mapEntry.LastRequest) <= cfg.RATE_TTL {
+	if time.Since(mapEntry.WindowStart) >= cfg.RATE_TTL {
+		mapEntry.WindowStart = time.Now()
+		mapEntry.NumRequests = 0
+		return false
+	}
+
+	if mapEntry.NumRequests >= cfg.MAX_REQUESTS_PER_WINDOW && time.Since(mapEntry.WindowStart) <= cfg.RATE_TTL {
 		return true
 	}
 
@@ -117,15 +142,24 @@ func RegisterNewRequest(ip string) bool {
 //
 // Dump their rate info to redis
 func DumpConnectionRequests(ip string) error {
-	mu.Lock()
-	info, ok := rateMap[ip]
-	mu.Unlock()
+	locks.lock(ip)
+	entry, ok := rateMap[ip]
 
 	if !ok {
+		locks.unlock(ip)
 		return nil
 	}
 
-	sinceLastRequest := time.Since(info.LastRequest)
-	ttl := min(cfg.RATE_TTL, sinceLastRequest)
-	return redis.SetCurrentRequests(ip, info.NumRequests, ttl)
+	entry.Connected = false
+	if time.Since(entry.WindowStart) >= cfg.RATE_TTL { // window has expired, if they reconnect they can have new session
+		delete(rateMap, ip)
+		locks.unlock(ip)
+		return nil
+	} else {
+		rateMap[ip] = entry
+	}
+
+	ttl := cfg.RATE_TTL - time.Since(entry.WindowStart)
+	locks.unlock(ip)
+	return redis.SetCurrentRequests(ip, entry.NumRequests, ttl)
 }
