@@ -20,12 +20,12 @@ func init() {
 	ticker := time.NewTicker(cfg.LOG_DUMP_INTERVAL_SECONDS * time.Second)
 	go func() {
 		for range ticker.C {
-			onDumpSignal()
+			OnDump()
 		}
 	}()
 }
 
-func onDumpSignal() {
+func OnDump() {
 	const root = "/tmp/cloudramp/logs"
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/limiter"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
@@ -28,6 +29,8 @@ import (
 
 const LEAVE_ERROR = "ws closed: 1005 "
 
+var ServerWaitGroup sync.WaitGroup
+
 // Define start method here so that we can use it in testing
 //
 // It's a good habit to use these "ctx" objects, since they give us fine grained
@@ -41,16 +44,26 @@ func Start(ctx context.Context) {
 	go func() {
 		fmt.Println("Server listening on", server.Addr)
 		err := server.ListenAndServe()
-		if err != nil {
+		if err != nil && err != http.ErrServerClosed {
 			fmt.Println("Error starting server", err)
 			return
 		}
 	}()
 
-	// This is "channel" syntax, basically it means that we wait until something is sent in the channel
-	// Channels can be used to send data, but in this case it is used as a signal by sending an empty struct
+	// On shutdown, give the server a 15s timer to complete all connections
+	// Then dump logs and rate limits
 	<-ctx.Done()
-	server.Shutdown(ctx)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	server.Shutdown(shutdownCtx)
+
+	if cfg.USE_FIRESTORE {
+		fmt.Println("Dumping logs")
+		logger.OnDump()
+	}
+
+	fmt.Println("Dumping rate limits")
+	limiter.OnDump()
 }
 
 // Helper function to be detached in a separate goroutine and handle connections from outside sources
@@ -125,6 +138,9 @@ func SendFailure(w http.ResponseWriter, r *http.Request) {
 
 // Connection handler function
 func handleConnection(w http.ResponseWriter, r *http.Request) {
+	ServerWaitGroup.Add(1)
+	defer ServerWaitGroup.Done()
+
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		fmt.Println("[SERVER ERROR] gathering IP address:", err)
