@@ -37,7 +37,7 @@ func init() {
 	ticker := time.NewTicker(cfg.RATE_DUMP)
 	go func() {
 		for range ticker.C {
-			dumpAndCleanMap()
+			OnDump()
 		}
 	}()
 }
@@ -45,7 +45,7 @@ func init() {
 // Dump all current rate information redis
 //
 // Also clear out any disconnections
-func dumpAndCleanMap() {
+func OnDump() {
 	lockAll()
 	for k, entry := range rateMap {
 		// wipe users who aren't connected and TTL has expired

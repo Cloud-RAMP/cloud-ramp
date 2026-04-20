@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
@@ -26,7 +28,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	parentCtx := context.Background()
+	parentCtx, cancel := context.WithCancel(context.Background())
+
+	fmt.Println("Installing signal handler")
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		signal := <-c // wait for OS signal
+		fmt.Println("Got signal:", signal)
+
+		// stop server. the StartServer method of the server package has the remainder of the logic
+		cancel()
+	}()
 
 	fmt.Println("Initializing firestore")
 	if cfg.USE_FIRESTORE {
