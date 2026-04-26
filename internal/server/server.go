@@ -51,7 +51,7 @@ func Start(ctx context.Context) {
 	// On shutdown, give the server a 15s timer to complete all connections
 	// Then dump logs and rate limits
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	server.Shutdown(shutdownCtx)
 
@@ -224,7 +224,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
-	go func() {
+	func() {
 		// loop for duration of the connection
 		for {
 			select {
