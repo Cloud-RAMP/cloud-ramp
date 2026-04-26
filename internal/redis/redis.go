@@ -3,9 +3,11 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/redis/go-redis/v9"
 )
@@ -42,8 +44,20 @@ func InitClient(ctx context.Context) error {
 	client = redis.NewClient(options)
 	roomChans = make(map[string]*pubSub)
 
-	client.FlushAll(ctx)
 	return nil
+}
+
+// Check if a user ID exists in redis. If it does, return it. Else empty string
+func CheckUserID(ctx context.Context, ip string) (string, error) {
+	uidResp := client.Get(ctx, ip)
+	if uidResp.Err() != nil {
+		if errors.Is(uidResp.Err(), redis.Nil) {
+			return "", nil
+		}
+		return "", uidResp.Err()
+	}
+
+	return uidResp.Result()
 }
 
 // Makes a user join a given room. If the room does not exist, it is created
@@ -94,7 +108,7 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 // Removes a user from a room
 //
 // If the room is empty, its subscription is deleted
-func LeaveRoom(ctx context.Context, instanceId, roomId, userId string) error {
+func LeaveRoom(ctx context.Context, instanceId, roomId, userId, ip string) error {
 	key := getUsersKey(instanceId, roomId)
 
 	// remove client from set
@@ -109,11 +123,19 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId string) error {
 	}
 	roomSize := sCardRes.Val()
 
+	if err := client.Set(ctx, ip, userId, cfg.IP_RECONNECT_TTL).Err(); err != nil {
+		return err
+	}
+
 	// remove PubSubs for empty rooms
 	if roomSize == 0 {
 		// Delete empty data from redis (avoid using too much storage)
-		client.Del(ctx, key)
-		client.Del(ctx, getEventKey(instanceId, roomId))
+		if err := client.Del(ctx, key).Err(); err != nil {
+			return err
+		}
+		if err := client.Del(ctx, getEventKey(instanceId, roomId)).Err(); err != nil {
+			return err
+		}
 
 		roomChansMu.Lock()
 		defer roomChansMu.Unlock()
