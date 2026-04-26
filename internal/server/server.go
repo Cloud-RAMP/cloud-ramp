@@ -72,6 +72,258 @@ func Start(ctx context.Context) {
 	logger.ServerInfo("Shutdown complete")
 }
 
+func SendFailure(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(500)
+	fmt.Fprintf(w, "Failed to establish WebSocket connection")
+}
+
+// Connection handler function
+func handleConnection(w http.ResponseWriter, r *http.Request) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		logger.ServerError("gathering IP address:", err)
+		SendFailure(w, r)
+		return
+	}
+
+	backoff, err := limiter.RegisterNewConnection(ip)
+	if err != nil {
+		logger.ServerError("register new rate limiter connection:", err)
+		SendFailure(w, r)
+		return
+	}
+	if backoff {
+		limiter.BackoffHTTP(w, r)
+		return
+	}
+
+	// Updagrade the HTTP connection to WS
+	conn, _, _, err := ws.UpgradeHTTP(r, w)
+	if err != nil {
+		logger.ServerError("upgrading protocols:", err)
+		SendFailure(w, r)
+		return
+	}
+
+	// Background context
+	ctx, ctxClose := context.WithCancel(context.Background())
+
+	// fetch connection ID if this IP has connected before
+	connId, err := redis.CheckUserID(ctx, ip)
+	if err != nil {
+		logger.ServerError("connection UID recovery:", err)
+		SendFailure(w, r)
+		ctxClose()
+		return
+	}
+	if connId == "" {
+		// Create new unique client id
+		connIdUuid, err := uuid.NewV7()
+		if err != nil {
+			logger.ServerError("Failed to create uuid:", err)
+			conn.Close()
+			ctxClose()
+			return
+		}
+		connId = connIdUuid.String()
+	}
+
+	// Split path so we can gather necessary info (instanceId, room)
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if len(parts) < 2 {
+		logger.ServerError("Invalid request domain:", err)
+		conn.Close()
+		ctxClose()
+		return
+	}
+	instanceId := parts[0]
+	room := parts[1]
+
+	// construct a base event that we will modify to send to WebAssembly
+	baseEvent := wsevents.WSEventInfo{
+		ConnectionId: connId,
+		RoomId:       room,
+		InstanceId:   instanceId,
+	}
+
+	logger.NewConnection(instanceId, r.RemoteAddr, connId, room)
+
+	// establish room chan and join redis pub/sub
+	commChan := comm.InitConn(instanceId, room, connId)
+	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId)
+	if err != nil {
+		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
+		conn.Close()
+		ctxClose()
+		return
+	}
+
+	// execute the initial on join event
+	event := baseEvent
+	event.Timestamp = time.Now().UnixMilli()
+	event.EventType = wsevents.ON_JOIN
+	if err = sandbox.Execute(ctx, &event); err != nil {
+		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+			Key:   "connectionId",
+			Value: slog.StringValue(connId),
+		}, slog.Attr{
+			Key:   "roomId",
+			Value: slog.StringValue(room),
+		})
+	}
+
+	// only execute cleanup code once
+	var once sync.Once
+	onConnectionClose := func() {
+		once.Do(func() {
+			logger.Info(instanceId, "Client disconnected", slog.Attr{
+				Key:   "connectionId",
+				Value: slog.StringValue(connId),
+			}, slog.Attr{
+				Key:   "roomId",
+				Value: slog.StringValue(room),
+			})
+
+			event := baseEvent
+			event.Timestamp = time.Now().UnixMilli()
+			event.EventType = wsevents.ON_LEAVE
+			sandbox.Execute(ctx, &event)
+
+			limiter.DumpConnectionRequests(ip)
+			err := redis.LeaveRoom(ctx, instanceId, room, connId, ip)
+			if err != nil {
+				slog.Error("FAILED REDIS LEAVE", "errMsg", err.Error())
+			}
+			ctxClose()
+			comm.CloseConn(instanceId, room, connId)
+			conn.Close()
+		})
+	}
+
+	onConnectionError := func(err error) {
+		logger.ServerError("WebSocket write failed", err)
+		logger.Info(instanceId, fmt.Sprintf("Client error writing: %e", err), slog.Attr{
+			Key:   "connectionId",
+			Value: slog.StringValue(connId),
+		}, slog.Attr{
+			Key:   "roomId",
+			Value: slog.StringValue(room),
+		})
+		event := baseEvent
+		event.Timestamp = time.Now().UnixMilli()
+		event.EventType = wsevents.ON_ERROR
+		event.Payload = err.Error()
+		sandbox.Execute(ctx, &event)
+
+		limiter.DumpConnectionRequests(ip)
+		redis.LeaveRoom(ctx, instanceId, room, connId, ip)
+		ctxClose()
+		comm.CloseConn(instanceId, room, connId)
+		conn.Close()
+	}
+
+	// Spin off two goroutines: one for receiving messages, one for sending
+	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
+	go func() {
+		// loop for duration of the connection
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Read data from the client on the connection
+				// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
+				msg, op, err := wsutil.ReadClientData(conn)
+				if err == io.EOF {
+					fmt.Println("Client disconnected")
+					onConnectionClose()
+					return
+				} else if err != nil {
+					// Client disconnected
+					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
+						onConnectionClose()
+						return
+					}
+
+					onConnectionError(err)
+					return
+				}
+
+				// Check rate limiter, do we need to backoff?
+				backoff := limiter.RegisterNewRequest(ip)
+				if backoff {
+					if err := limiter.BackoffWS(conn); err != nil {
+						onConnectionError(err)
+						return
+					}
+
+					logger.Info(instanceId, "Rate limit", slog.Attr{
+						Key:   "connectionId",
+						Value: slog.StringValue(connId),
+					}, slog.Attr{
+						Key:   "IP",
+						Value: slog.StringValue(ip),
+					}, slog.Attr{
+						Key:   "roomId",
+						Value: slog.StringValue(room),
+					}, slog.Attr{
+						Key:   "payload",
+						Value: slog.StringValue(string(msg)),
+					})
+
+					continue
+				}
+
+				// user sent actual data
+				if op.IsData() {
+					event := baseEvent
+					event.Timestamp = time.Now().UnixMilli()
+					event.Payload = string(msg)
+					event.EventType = wsevents.ON_MESSAGE
+
+					logger.Info(instanceId, "New message", slog.Attr{
+						Key:   "connectionId",
+						Value: slog.StringValue(connId),
+					}, slog.Attr{
+						Key:   "roomId",
+						Value: slog.StringValue(room),
+					}, slog.Attr{
+						Key:   "payload",
+						Value: slog.StringValue(string(msg)),
+					})
+
+					// execute logs any errors
+					if err = sandbox.Execute(ctx, &event); err != nil {
+						logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+							Key:   "connectionId",
+							Value: slog.StringValue(connId),
+						}, slog.Attr{
+							Key:   "roomId",
+							Value: slog.StringValue(room),
+						})
+					}
+				}
+
+				// Write a message to the client as the server (in this case, echo it)
+				err = wsutil.WriteServerMessage(conn, op, msg)
+				if err == io.EOF {
+					fmt.Println("Client disconnected")
+					onConnectionClose()
+					return
+				} else if err != nil {
+					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
+						onConnectionClose()
+						return
+					}
+
+					onConnectionError(err)
+					return
+				}
+			}
+		}
+	}()
+}
+
 // Helper function to be detached in a separate goroutine and handle connections from outside sources
 //
 // Messages can come from either redis or the same server
@@ -135,239 +387,4 @@ func handleExternalMessages(
 			}
 		}
 	}
-}
-
-func SendFailure(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(500)
-	fmt.Fprintf(w, "Failed to establish WebSocket connection")
-}
-
-// Connection handler function
-func handleConnection(w http.ResponseWriter, r *http.Request) {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		logger.ServerError("gathering IP address:", err)
-		SendFailure(w, r)
-		return
-	}
-
-	backoff, err := limiter.RegisterNewConnection(ip)
-	if err != nil {
-		logger.ServerError("register new rate limiter connection:", err)
-		SendFailure(w, r)
-		return
-	}
-	if backoff {
-		limiter.BackoffHTTP(w, r)
-		return
-	}
-
-	// Updagrade the HTTP connection to WS
-	conn, _, _, err := ws.UpgradeHTTP(r, w)
-	if err != nil {
-		logger.ServerError("upgrading protocols:", err)
-		SendFailure(w, r)
-		return
-	}
-
-	// Create new unique client id
-	connId, err := uuid.NewV7()
-	if err != nil {
-		logger.ServerError("Failed to create uuid:", err)
-		conn.Close()
-		return
-	}
-
-	// Split path so we can gather necessary info (instanceId, room)
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
-	if len(parts) < 2 {
-		logger.ServerError("Invalid request domain:", err)
-		conn.Close()
-		return
-	}
-	instanceId := parts[0]
-	room := parts[1]
-
-	// construct a base event that we will modify to send to WebAssembly
-	baseEvent := wsevents.WSEventInfo{
-		ConnectionId: connId.String(),
-		RoomId:       room,
-		InstanceId:   instanceId,
-	}
-
-	logger.NewConnection(instanceId, r.RemoteAddr, connId.String(), room)
-
-	// Background context for goroutine
-	ctx, ctxClose := context.WithCancel(context.Background())
-
-	// establish room chan and join redis pub/sub
-	commChan := comm.InitConn(instanceId, room, connId.String())
-	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId.String())
-	if err != nil {
-		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
-		ctxClose()
-		return
-	}
-
-	// execute the initial on join event
-	event := baseEvent
-	event.Timestamp = time.Now().UnixMilli()
-	event.EventType = wsevents.ON_JOIN
-	if err = sandbox.Execute(ctx, &event); err != nil {
-		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
-			Key:   "connectionId",
-			Value: slog.StringValue(connId.String()),
-		}, slog.Attr{
-			Key:   "roomId",
-			Value: slog.StringValue(room),
-		})
-	}
-
-	// only execute cleanup code once
-	var once sync.Once
-	onConnectionClose := func() {
-		once.Do(func() {
-			logger.Info(instanceId, "Client disconnected", slog.Attr{
-				Key:   "connectionId",
-				Value: slog.StringValue(connId.String()),
-			}, slog.Attr{
-				Key:   "roomId",
-				Value: slog.StringValue(room),
-			})
-
-			event := baseEvent
-			event.Timestamp = time.Now().UnixMilli()
-			event.EventType = wsevents.ON_LEAVE
-			sandbox.Execute(ctx, &event)
-
-			limiter.DumpConnectionRequests(ip)
-			redis.LeaveRoom(ctx, instanceId, room, connId.String())
-			ctxClose()
-			comm.CloseConn(instanceId, room, connId.String())
-			conn.Close()
-		})
-	}
-
-	onConnectionError := func(err error) {
-		logger.ServerError("WebSocket write failed", err)
-		logger.Info(instanceId, fmt.Sprintf("Client error writing: %e", err), slog.Attr{
-			Key:   "connectionId",
-			Value: slog.StringValue(connId.String()),
-		}, slog.Attr{
-			Key:   "roomId",
-			Value: slog.StringValue(room),
-		})
-		event := baseEvent
-		event.Timestamp = time.Now().UnixMilli()
-		event.EventType = wsevents.ON_ERROR
-		event.Payload = err.Error()
-		sandbox.Execute(ctx, &event)
-
-		limiter.DumpConnectionRequests(ip)
-		redis.LeaveRoom(ctx, instanceId, room, connId.String())
-		ctxClose()
-		comm.CloseConn(instanceId, room, connId.String())
-		conn.Close()
-	}
-
-	// Spin off two goroutines: one for receiving messages, one for sending
-	go handleExternalMessages(ctx, conn, commChan, redisChan, connId.String(), instanceId, onConnectionClose)
-	go func() {
-		// loop for duration of the connection
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				// Read data from the client on the connection
-				// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
-				msg, op, err := wsutil.ReadClientData(conn)
-				if err == io.EOF {
-					fmt.Println("Client disconnected")
-					onConnectionClose()
-					return
-				} else if err != nil {
-					// Client disconnected
-					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
-						onConnectionClose()
-						return
-					}
-
-					onConnectionError(err)
-					return
-				}
-
-				// Check rate limiter, do we need to backoff?
-				backoff := limiter.RegisterNewRequest(ip)
-				if backoff {
-					if err := limiter.BackoffWS(conn); err != nil {
-						onConnectionError(err)
-						return
-					}
-
-					logger.Info(instanceId, "Rate limit", slog.Attr{
-						Key:   "connectionId",
-						Value: slog.StringValue(connId.String()),
-					}, slog.Attr{
-						Key:   "IP",
-						Value: slog.StringValue(ip),
-					}, slog.Attr{
-						Key:   "roomId",
-						Value: slog.StringValue(room),
-					}, slog.Attr{
-						Key:   "payload",
-						Value: slog.StringValue(string(msg)),
-					})
-
-					continue
-				}
-
-				// user sent actual data
-				if op.IsData() {
-					event := baseEvent
-					event.Timestamp = time.Now().UnixMilli()
-					event.Payload = string(msg)
-					event.EventType = wsevents.ON_MESSAGE
-
-					logger.Info(instanceId, "New message", slog.Attr{
-						Key:   "connectionId",
-						Value: slog.StringValue(connId.String()),
-					}, slog.Attr{
-						Key:   "roomId",
-						Value: slog.StringValue(room),
-					}, slog.Attr{
-						Key:   "payload",
-						Value: slog.StringValue(string(msg)),
-					})
-
-					// execute logs any errors
-					if err = sandbox.Execute(ctx, &event); err != nil {
-						logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
-							Key:   "connectionId",
-							Value: slog.StringValue(connId.String()),
-						}, slog.Attr{
-							Key:   "roomId",
-							Value: slog.StringValue(room),
-						})
-					}
-				}
-
-				// Write a message to the client as the server (in this case, echo it)
-				err = wsutil.WriteServerMessage(conn, op, msg)
-				if err == io.EOF {
-					fmt.Println("Client disconnected")
-					onConnectionClose()
-					return
-				} else if err != nil {
-					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
-						onConnectionClose()
-						return
-					}
-
-					onConnectionError(err)
-					return
-				}
-			}
-		}
-	}()
 }
