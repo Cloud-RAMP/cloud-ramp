@@ -39,6 +39,9 @@ const MAX_REQUESTS_PER_WINDOW = 1000
 // We can assume that most IPs will only connect to one server, unless they know their stuff
 const RATE_DUMP_INTERVAL_SECONDS = 10
 
+const IP_RECONNECT_TTL_SECONDS = 30
+
 // time.Duration objects from config varaibles. Not necessary to modify
 const RATE_TTL = time.Duration(RATE_LIMIT_WINDOW_SECONDS * time.Second)
-const RATE_DUMP = time.Duration(RATE_DUMP_INTERVAL_SECONDS * time.Second)
+const RATE_DUMP_INTERVAL = time.Duration(RATE_DUMP_INTERVAL_SECONDS * time.Second)
+const IP_RECONNECT_TTL = time.Duration(IP_RECONNECT_TTL_SECONDS * time.Second)

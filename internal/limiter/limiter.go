@@ -34,7 +34,7 @@ var rateMap map[string]rateMapEntry = make(map[string]rateMapEntry)
 
 // Initialize service to dump connection information to redis on timeout
 func init() {
-	ticker := time.NewTicker(cfg.RATE_DUMP)
+	ticker := time.NewTicker(cfg.RATE_DUMP_INTERVAL)
 	go func() {
 		for range ticker.C {
 			err := OnDump()

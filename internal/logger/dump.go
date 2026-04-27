@@ -20,6 +20,7 @@ func init() {
 	ticker := time.NewTicker(cfg.LOG_DUMP_INTERVAL_SECONDS * time.Second)
 	go func() {
 		for range ticker.C {
+			ServerInfo("Dumping Firestore logs")
 			err := OnDump()
 			if err != nil {
 				ServerError("Dumping logs", err)
