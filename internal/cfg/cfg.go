@@ -18,6 +18,9 @@ const USE_FIRESTORE = false
 // can mean losing logs
 const LOG_DUMP_INTERVAL_SECONDS = 12000000
 
+// Control whether or not messages are sent on connection join / leave
+const MSG_JOIN_LEAVE = true
+
 // If this value is true, we use the loader that pulls from the local filesystem
 //
 // Else, we will pull WASM modules from vercel blob storage

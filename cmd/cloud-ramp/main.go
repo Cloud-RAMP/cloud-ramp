@@ -60,10 +60,10 @@ func main() {
 
 	// These values will probably need to be changed later to ones that make sense for the system
 	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
-		CleanupInterval:    5 * time.Second,
-		MaxIdleTime:        6 * time.Second,
+		CleanupInterval:    30 * time.Second, // make this lower in production
+		MaxIdleTime:        20 * time.Second,
 		MemoryLimitPages:   10,
-		MaxActiveModules:   3,
+		MaxActiveModules:   10,
 		CloseOnContextDone: true,
 		HandlerMap: wasmevents.NewHandlerMap().
 			AddHandler(wasmevents.ABORT, handlers.AbortHandler).

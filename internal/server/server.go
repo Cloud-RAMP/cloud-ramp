@@ -209,18 +209,20 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// execute the initial on join event
-	event := baseEvent
-	event.Timestamp = time.Now().UnixMilli()
-	event.EventType = wsevents.ON_JOIN
-	if err = sandbox.Execute(ctx, &event); err != nil {
-		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
-			Key:   "connectionId",
-			Value: slog.StringValue(connId.String()),
-		}, slog.Attr{
-			Key:   "roomId",
-			Value: slog.StringValue(room),
-		})
+	if cfg.MSG_JOIN_LEAVE {
+		// execute the initial on join event
+		event := baseEvent
+		event.Timestamp = time.Now().UnixMilli()
+		event.EventType = wsevents.ON_JOIN
+		if err = sandbox.Execute(ctx, &event); err != nil {
+			logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+				Key:   "connectionId",
+				Value: slog.StringValue(connId.String()),
+			}, slog.Attr{
+				Key:   "roomId",
+				Value: slog.StringValue(room),
+			})
+		}
 	}
 
 	// only execute cleanup code once
@@ -235,10 +237,12 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				Value: slog.StringValue(room),
 			})
 
-			event := baseEvent
-			event.Timestamp = time.Now().UnixMilli()
-			event.EventType = wsevents.ON_LEAVE
-			sandbox.Execute(ctx, &event)
+			if cfg.MSG_JOIN_LEAVE {
+				event := baseEvent
+				event.Timestamp = time.Now().UnixMilli()
+				event.EventType = wsevents.ON_LEAVE
+				sandbox.Execute(ctx, &event)
+			}
 
 			limiter.DumpConnectionRequests(ip)
 			redis.LeaveRoom(ctx, instanceId, room, connId.String())
@@ -257,11 +261,14 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			Key:   "roomId",
 			Value: slog.StringValue(room),
 		})
-		event := baseEvent
-		event.Timestamp = time.Now().UnixMilli()
-		event.EventType = wsevents.ON_ERROR
-		event.Payload = err.Error()
-		sandbox.Execute(ctx, &event)
+
+		if cfg.MSG_JOIN_LEAVE {
+			event := baseEvent
+			event.Timestamp = time.Now().UnixMilli()
+			event.EventType = wsevents.ON_ERROR
+			event.Payload = err.Error()
+			sandbox.Execute(ctx, &event)
+		}
 
 		limiter.DumpConnectionRequests(ip)
 		redis.LeaveRoom(ctx, instanceId, room, connId.String())
@@ -352,21 +359,21 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
-				// Write a message to the client as the server (in this case, echo it)
-				err = wsutil.WriteServerMessage(conn, op, msg)
-				if err == io.EOF {
-					fmt.Println("Client disconnected")
-					onConnectionClose()
-					return
-				} else if err != nil {
-					if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
-						onConnectionClose()
-						return
-					}
+				// // Write a message to the client as the server (in this case, echo it)
+				// err = wsutil.WriteServerMessage(conn, op, msg)
+				// if err == io.EOF {
+				// 	fmt.Println("Client disconnected")
+				// 	onConnectionClose()
+				// 	return
+				// } else if err != nil {
+				// 	if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
+				// 		onConnectionClose()
+				// 		return
+				// 	}
 
-					onConnectionError(err)
-					return
-				}
+				// 	onConnectionError(err)
+				// 	return
+				// }
 			}
 		}
 	}()

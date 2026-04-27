@@ -19,7 +19,7 @@ function ensureConnection(socket: WebSocket): Promise<void> {
 (async () => {
     try {
         // Establish initial connection
-        const socket = new WebSocket("ws://localhost:8080/rP2gIxhkw7xHVpwGOX6g/aaaa");
+        const socket = new WebSocket("ws://localhost:8080/rP2gIxhkw7xHVpwGOX6g/a");
         await ensureConnection(socket);
     
         // Receive the first message then close
