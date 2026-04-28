@@ -97,19 +97,20 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Updagrade the HTTP connection to WS
-	conn, _, _, err := ws.UpgradeHTTP(r, w)
-	if err != nil {
-		logger.ServerError("upgrading protocols:", err)
-		SendFailure(w, r)
+	// Split path so we can gather necessary info (instanceId, room)
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if len(parts) < 2 {
+		logger.ServerError("Invalid request domain:", err)
 		return
 	}
+	instanceId := parts[0]
+	room := parts[1]
 
 	// Background context
 	ctx, ctxClose := context.WithCancel(context.Background())
 
 	// fetch connection ID if this IP has connected before
-	connId, err := redis.CheckUserID(ctx, ip)
+	connId, err := redis.CheckUserID(ctx, instanceId, room, ip)
 	if err != nil {
 		logger.ServerError("connection UID recovery:", err)
 		SendFailure(w, r)
@@ -121,23 +122,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		connIdUuid, err := uuid.NewV7()
 		if err != nil {
 			logger.ServerError("Failed to create uuid:", err)
-			conn.Close()
 			ctxClose()
 			return
 		}
 		connId = connIdUuid.String()
 	}
-
-	// Split path so we can gather necessary info (instanceId, room)
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
-	if len(parts) < 2 {
-		logger.ServerError("Invalid request domain:", err)
-		conn.Close()
-		ctxClose()
-		return
-	}
-	instanceId := parts[0]
-	room := parts[1]
 
 	// construct a base event that we will modify to send to WebAssembly
 	baseEvent := wsevents.WSEventInfo{
@@ -153,7 +142,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId)
 	if err != nil {
 		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
-		conn.Close()
+		ctxClose()
+		return
+	}
+
+	// Updagrade the HTTP connection to WS once bookkeeping is done
+	conn, _, _, err := ws.UpgradeHTTP(r, w)
+	if err != nil {
+		logger.ServerError("upgrading protocols:", err)
+		SendFailure(w, r)
 		ctxClose()
 		return
 	}
@@ -229,6 +226,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		conn.Close()
 	}
 
+	fmt.Println(connId)
+
 	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
 	func() {
@@ -242,7 +241,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
 				msg, op, err := wsutil.ReadClientData(conn)
 				if err == io.EOF {
-					fmt.Println("Client disconnected")
 					onConnectionClose()
 					return
 				} else if err != nil {

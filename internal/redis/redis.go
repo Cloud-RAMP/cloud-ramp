@@ -29,6 +29,10 @@ func getDataKey(instanceId, roomId string) string {
 	return fmt.Sprintf("%s:data", comm.GetRoomKey(instanceId, roomId))
 }
 
+func getReconnectionKey(instanceId, roomId, ip string) string {
+	return fmt.Sprintf("%s:%s", comm.GetRoomKey(instanceId, roomId), ip)
+}
+
 // Initialize the redis client. To be called on startup
 func InitClient(ctx context.Context) error {
 	redisURL := os.Getenv("REDIS_URL")
@@ -48,8 +52,9 @@ func InitClient(ctx context.Context) error {
 }
 
 // Check if a user ID exists in redis. If it does, return it. Else empty string
-func CheckUserID(ctx context.Context, ip string) (string, error) {
-	uidResp := client.Get(ctx, ip)
+func CheckUserID(ctx context.Context, instanceId, roomId, ip string) (string, error) {
+	key := getReconnectionKey(instanceId, roomId, ip)
+	uidResp := client.Get(ctx, key)
 	if uidResp.Err() != nil {
 		if errors.Is(uidResp.Err(), redis.Nil) {
 			return "", nil
@@ -123,7 +128,8 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId, ip string) error
 	}
 	roomSize := sCardRes.Val()
 
-	if err := client.Set(ctx, ip, userId, cfg.IP_RECONNECT_TTL).Err(); err != nil {
+	reconnectKey := getReconnectionKey(instanceId, roomId, ip)
+	if err := client.Set(ctx, reconnectKey, userId, cfg.IP_RECONNECT_TTL).Err(); err != nil {
 		return err
 	}
 
