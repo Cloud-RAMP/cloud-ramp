@@ -18,7 +18,7 @@ build-docker:
 	docker build -t peterolsen1/cloud-ramp:1.0.0 .
 
 run-docker:
-	docker run -p 8080:8080 --env-file .env peterolsen1/cloud-ramp:1.0.0
+	docker run -p 8080:8080 --env-file $(pwd)/.env peterolsen1/cloud-ramp:1.0.0
 
 clean:
 	rm build

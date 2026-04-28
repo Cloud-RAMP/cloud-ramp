@@ -22,12 +22,7 @@ import (
 )
 
 func main() {
-	logger.ServerInfo("Loading environment variables")
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("No .env file found")
-		os.Exit(1)
-	}
+	err := godotenv.Load() // this is only necessary in dev, this won't work in prod
 
 	parentCtx, cancel := context.WithCancel(context.Background())
 
