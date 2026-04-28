@@ -7,7 +7,7 @@ import "time"
 // in a production system, we would probably load config with a yaml file.
 // for simplicity, we can just define variables here
 
-const USE_FIRESTORE = false
+const USE_FIRESTORE = true
 
 // How often logs for each instance will be dumped to firestore.
 //
@@ -16,15 +16,15 @@ const USE_FIRESTORE = false
 //
 // Be careful that our container may be preempted at any time, so having a higher cooldown
 // can mean losing logs
-const LOG_DUMP_INTERVAL_SECONDS = 12000000
+const LOG_DUMP_INTERVAL_SECONDS = 60
 
 // Control whether or not messages are sent on connection join / leave
-const MSG_JOIN_LEAVE = true
+const MSG_JOIN_LEAVE = false
 
 // If this value is true, we use the loader that pulls from the local filesystem
 //
 // Else, we will pull WASM modules from vercel blob storage
-const USE_MOCK_LOADER = true
+const USE_MOCK_LOADER = false
 
 // If set to true, rate limiting will be enforced
 const RATE_LIMIT = true
@@ -39,6 +39,7 @@ const MAX_REQUESTS_PER_WINDOW = 1000
 // We can assume that most IPs will only connect to one server, unless they know their stuff
 const RATE_DUMP_INTERVAL_SECONDS = 10
 
+// Number of seconds we give a lost connection to reconnect. If not within this window, they will be given a new ID
 const IP_RECONNECT_TTL_SECONDS = 30
 
 // time.Duration objects from config varaibles. Not necessary to modify
