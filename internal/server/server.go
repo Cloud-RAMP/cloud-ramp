@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/billing"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
@@ -61,6 +62,14 @@ func Start(ctx context.Context) {
 		err := firestore.OnLogDump()
 		if err != nil {
 			logger.ServerError("Dumping logs in shutdown", err)
+		}
+	}
+
+	if cfg.USE_FIRESTORE {
+		logger.ServerInfo("Dumping billing data")
+		err := billing.OnBillingDump()
+		if err != nil {
+			logger.ServerError("Dumping billing data in shutdown", err)
 		}
 	}
 
@@ -156,20 +165,18 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cfg.MSG_JOIN_LEAVE {
-		// execute the initial on join event
-		event := baseEvent
-		event.Timestamp = time.Now().UnixMilli()
-		event.EventType = wsevents.ON_JOIN
-		if err = sandbox.Execute(ctx, &event); err != nil {
-			logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
-				Key:   "connectionId",
-				Value: slog.StringValue(connId),
-			}, slog.Attr{
-				Key:   "roomId",
-				Value: slog.StringValue(room),
-			})
-		}
+	// execute the initial on join event
+	event := baseEvent
+	event.Timestamp = time.Now().UnixMilli()
+	event.EventType = wsevents.ON_JOIN
+	if err = sandbox.Execute(ctx, &event); err != nil {
+		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %v", err), slog.Attr{
+			Key:   "connectionId",
+			Value: slog.StringValue(connId),
+		}, slog.Attr{
+			Key:   "roomId",
+			Value: slog.StringValue(room),
+		})
 	}
 
 	// only execute cleanup code once
@@ -184,17 +191,15 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				Value: slog.StringValue(room),
 			})
 
-			if cfg.MSG_JOIN_LEAVE {
-				event := baseEvent
-				event.Timestamp = time.Now().UnixMilli()
-				event.EventType = wsevents.ON_LEAVE
-				sandbox.Execute(ctx, &event)
-			}
+			event := baseEvent
+			event.Timestamp = time.Now().UnixMilli()
+			event.EventType = wsevents.ON_LEAVE
+			sandbox.Execute(ctx, &event)
 
 			limiter.DumpConnectionRequests(ip)
 			err := redis.LeaveRoom(ctx, instanceId, room, connId, ip)
 			if err != nil {
-				slog.Error("FAILED REDIS LEAVE", "errMsg", err.Error())
+				slog.Error("Failed redis leave", "errMsg", err.Error())
 			}
 			ctxClose()
 			comm.CloseConn(instanceId, room, connId)
@@ -204,7 +209,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	onConnectionError := func(err error) {
 		logger.ServerError("WebSocket write failed", err)
-		logger.Info(instanceId, fmt.Sprintf("Client error writing: %e", err), slog.Attr{
+		logger.Info(instanceId, fmt.Sprintf("Client error writing: %v", err), slog.Attr{
 			Key:   "connectionId",
 			Value: slog.StringValue(connId),
 		}, slog.Attr{
@@ -212,13 +217,11 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			Value: slog.StringValue(room),
 		})
 
-		if cfg.MSG_JOIN_LEAVE {
-			event := baseEvent
-			event.Timestamp = time.Now().UnixMilli()
-			event.EventType = wsevents.ON_ERROR
-			event.Payload = err.Error()
-			sandbox.Execute(ctx, &event)
-		}
+		event := baseEvent
+		event.Timestamp = time.Now().UnixMilli()
+		event.EventType = wsevents.ON_ERROR
+		event.Payload = err.Error()
+		sandbox.Execute(ctx, &event)
 
 		limiter.DumpConnectionRequests(ip)
 		redis.LeaveRoom(ctx, instanceId, room, connId, ip)
@@ -226,8 +229,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		comm.CloseConn(instanceId, room, connId)
 		conn.Close()
 	}
-
-	fmt.Println(connId)
 
 	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
@@ -254,6 +255,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					onConnectionError(err)
 					return
 				}
+
+				billing.InboundRequest(instanceId)
 
 				// Check rate limiter, do we need to backoff?
 				backoff := limiter.RegisterNewRequest(ip)
@@ -300,7 +303,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 					// execute logs any errors
 					if err = sandbox.Execute(ctx, &event); err != nil {
-						logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %e", err), slog.Attr{
+						logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %v", err), slog.Attr{
 							Key:   "connectionId",
 							Value: slog.StringValue(connId),
 						}, slog.Attr{
@@ -309,22 +312,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 						})
 					}
 				}
-
-				// // Write a message to the client as the server (in this case, echo it)
-				// err = wsutil.WriteServerMessage(conn, op, msg)
-				// if err == io.EOF {
-				// 	fmt.Println("Client disconnected")
-				// 	onConnectionClose()
-				// 	return
-				// } else if err != nil {
-				// 	if err.Error() == LEAVE_ERROR || ctx.Err() != nil {
-				// 		onConnectionClose()
-				// 		return
-				// 	}
-
-				// 	onConnectionError(err)
-				// 	return
-				// }
 			}
 		}
 	}()
@@ -356,13 +343,14 @@ func handleExternalMessages(
 			// Send data to the connection
 			json, err := json.Marshal(commEvent)
 			if err != nil {
-				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %e", err), slog.Attr{
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %v", err), slog.Attr{
 					Key:   "connectionId",
 					Value: slog.StringValue(connId),
 				})
 				continue
 			}
 
+			billing.OutboundBytes(instanceId, uint64(len(json)))
 			err = wsutil.WriteServerMessage(conn, ws.OpText, json)
 		case redisEvent, ok := <-redisChan:
 			if !ok {
@@ -373,7 +361,7 @@ func handleExternalMessages(
 			event := &comm.CommEvent{}
 			err := json.Unmarshal([]byte(redisEvent.Payload), event)
 			if err != nil {
-				logger.Error(instanceId, fmt.Sprintf("Failed to marshal redis json: %e", err), slog.Attr{
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal redis json: %v", err), slog.Attr{
 					Key:   "connectionId",
 					Value: slog.StringValue(connId),
 				})
@@ -385,6 +373,7 @@ func handleExternalMessages(
 				continue
 			}
 
+			billing.OutboundBytes(instanceId, uint64(len(redisEvent.Payload)))
 			err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
 
 			// connection is closed. returns to that the onConnectionClose function will run

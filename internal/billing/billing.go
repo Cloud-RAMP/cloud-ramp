@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,9 +27,11 @@ type billingInfo struct {
 	firestoreWriteBytes atomic.Uint64
 	firestoreReadBytes  atomic.Uint64
 
-	outboundFetches atomic.Uint64
+	outboundFetchs     atomic.Uint64
+	outboundFetchBytes atomic.Uint64
 
 	inboundRequests atomic.Uint64
+	outboundBytes   atomic.Uint64
 }
 
 type billingMap struct {
@@ -39,9 +42,9 @@ type billingMap struct {
 var billing billingMap
 
 func init() {
-	if !cfg.USE_FIRESTORE {
-		return
-	}
+	// if !cfg.USE_FIRESTORE {
+	// 	return
+	// }
 
 	billing.internalMap = make(map[string]*billingInfo)
 
@@ -65,6 +68,7 @@ func OnBillingDump() error {
 	defer billing.mu.RUnlock()
 
 	for id, b := range billing.internalMap {
+		fmt.Println(b.Debug())
 		err := b.dumpSingleServicie(ctx, id)
 		if err != nil {
 			return err
@@ -91,10 +95,32 @@ func (b *billingInfo) dumpSingleServicie(ctx context.Context, serviceId string) 
 		"firestoreWrites":     gfirestore.Increment(int64(b.firestoreWrites.Swap(0))),
 		"firestoreWriteBytes": gfirestore.Increment(int64(b.firestoreWriteBytes.Swap(0))),
 		"firestoreReadBytes":  gfirestore.Increment(int64(b.firestoreReadBytes.Swap(0))),
-		"outboundFetches":     gfirestore.Increment(int64(b.outboundFetches.Swap(0))),
+		"outboundFetchs":      gfirestore.Increment(int64(b.outboundFetchs.Swap(0))),
+		"outboundFetchBytes":  gfirestore.Increment(int64(b.outboundFetchBytes.Swap(0))),
 		"inboundRequests":     gfirestore.Increment(int64(b.inboundRequests.Swap(0))),
+		"outboundBytes":       gfirestore.Increment(int64(b.outboundBytes.Swap(0))),
 		"updatedAt":           time.Now().UTC(),
 	}, gfirestore.MergeAll)
 
 	return err
+}
+
+func (b *billingInfo) Debug() string {
+	return fmt.Sprintf(
+		"Redis:     reads=%d  writes=%d  publishes=%d\n"+
+			"Firestore: reads=%d (%d bytes)  writes=%d (%d bytes)\n"+
+			"Fetches:   count=%d (%d bytes)\n"+
+			"HTTP:      inbound=%d  outbound=%d bytes",
+		b.redisReads.Load(),
+		b.redisWrites.Load(),
+		b.redisPublishes.Load(),
+		b.firestoreReads.Load(),
+		b.firestoreReadBytes.Load(),
+		b.firestoreWrites.Load(),
+		b.firestoreWriteBytes.Load(),
+		b.outboundFetchs.Load(),
+		b.outboundFetchBytes.Load(),
+		b.inboundRequests.Load(),
+		b.outboundBytes.Load(),
+	)
 }

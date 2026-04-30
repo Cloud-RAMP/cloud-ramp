@@ -91,19 +91,20 @@ func JoinRoom(ctx context.Context, instanceId, roomId, userId string) (<-chan *r
 	// add the user to the pub/sub model and get the chan back
 	ch := pubSub.addUser(userId)
 
-	// publish initial JOIN event
-	// TODO: add user config to toggle this on / off
-	event := comm.CommEvent{
-		DstConn:   "*",
-		SrcConn:   userId,
-		EventType: comm.JOIN,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return nil, err
-	}
-	if err = client.Publish(ctx, eventKey, eventJson).Err(); err != nil {
-		return nil, err
+	// publish initial JOIN event if config says so
+	if cfg.MSG_JOIN_LEAVE {
+		event := comm.CommEvent{
+			DstConn:   "*",
+			SrcConn:   userId,
+			EventType: comm.JOIN,
+		}
+		eventJson, err := json.Marshal(event)
+		if err != nil {
+			return nil, err
+		}
+		if err = client.Publish(ctx, eventKey, eventJson).Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	// return chan for calling process to read from
@@ -165,19 +166,20 @@ func LeaveRoom(ctx context.Context, instanceId, roomId, userId, ip string) error
 	roomChansMu.Unlock()
 
 	// Send leave event
-	// Similarly, add config to turn this on/off
-	event := comm.CommEvent{
-		DstConn:   "*",
-		SrcConn:   userId,
-		Room:      roomId,
-		EventType: comm.LEAVE,
-	}
-	eventJson, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
-		return err
+	if cfg.MSG_JOIN_LEAVE {
+		event := comm.CommEvent{
+			DstConn:   "*",
+			SrcConn:   userId,
+			Room:      roomId,
+			EventType: comm.LEAVE,
+		}
+		eventJson, err := json.Marshal(event)
+		if err != nil {
+			return err
+		}
+		if err = client.Publish(ctx, getEventKey(instanceId, roomId), eventJson).Err(); err != nil {
+			return err
+		}
 	}
 
 	return nil

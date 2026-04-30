@@ -19,7 +19,7 @@ func recordBilling(instanceId string, increment func(*billingInfo)) {
 	info = &billingInfo{}
 	billing.internalMap[instanceId] = info
 	billing.mu.Unlock()
-	increment(info) // safe — pointer is in map, atomics handle concurrency
+	increment(info)
 }
 
 func RedisRead(instanceId string) {
@@ -48,10 +48,17 @@ func FirestoreRead(instanceId string, bytes uint64) {
 	})
 }
 
-func OutboundFetch(instanceId string) {
-	recordBilling(instanceId, func(b *billingInfo) { b.outboundFetches.Add(1) })
+func OutboundFetch(instanceId string, bytes uint64) {
+	recordBilling(instanceId, func(b *billingInfo) {
+		b.outboundFetchs.Add(1)
+		b.outboundFetchBytes.Add(bytes)
+	})
 }
 
 func InboundRequest(instanceId string) {
 	recordBilling(instanceId, func(b *billingInfo) { b.inboundRequests.Add(1) })
+}
+
+func OutboundBytes(instanceId string, bytes uint64) {
+	recordBilling(instanceId, func(b *billingInfo) { b.outboundBytes.Add(bytes) })
 }
