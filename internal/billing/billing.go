@@ -26,7 +26,7 @@ type billingInfo struct {
 	firestoreWriteBytes atomic.Uint64
 	firestoreReadBytes  atomic.Uint64
 
-	outboundFetchs     atomic.Uint64
+	outboundFetches    atomic.Uint64
 	outboundFetchBytes atomic.Uint64
 
 	inboundRequests atomic.Uint64
@@ -94,7 +94,7 @@ func (b *billingInfo) dumpSingleServicie(ctx context.Context, serviceId string) 
 		"firestoreWrites":     gfirestore.Increment(int64(b.firestoreWrites.Swap(0))),
 		"firestoreWriteBytes": gfirestore.Increment(int64(b.firestoreWriteBytes.Swap(0))),
 		"firestoreReadBytes":  gfirestore.Increment(int64(b.firestoreReadBytes.Swap(0))),
-		"outboundFetchs":      gfirestore.Increment(int64(b.outboundFetchs.Swap(0))),
+		"outboundFetches":     gfirestore.Increment(int64(b.outboundFetches.Swap(0))),
 		"outboundFetchBytes":  gfirestore.Increment(int64(b.outboundFetchBytes.Swap(0))),
 		"inboundRequests":     gfirestore.Increment(int64(b.inboundRequests.Swap(0))),
 		"outboundBytes":       gfirestore.Increment(int64(b.outboundBytes.Swap(0))),

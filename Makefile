@@ -19,11 +19,11 @@ build-docker:
 	docker build -t peterolsen1/cloud-ramp:$(TAG) .
 
 run-docker:
-	docker run -p 8080:8080 --env-file $(pwd)/.env peterolsen1/cloud-ramp:$(TAG)
+	docker run -p 8080:8080 --env-file .env peterolsen1/cloud-ramp:$(TAG)
 
 push-docker: build-docker
-	docker tag cloud-ramp:$(TAG) peterolsen1/cloud-ramp:$(TAG)
-	docker tag cloud-ramp:$(TAG) peterolsen1/cloud-ramp:latest
+	docker tag peterolsen1/cloud-ramp:$(TAG) peterolsen1/cloud-ramp:$(TAG)
+	docker tag peterolsen1/cloud-ramp:$(TAG) peterolsen1/cloud-ramp:latest
 
 	docker push peterolsen1/cloud-ramp:$(TAG)
 	docker push peterolsen1/cloud-ramp:latest

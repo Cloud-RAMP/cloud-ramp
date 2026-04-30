@@ -50,7 +50,7 @@ func FirestoreRead(instanceId string, bytes uint64) {
 
 func OutboundFetch(instanceId string, bytes uint64) {
 	recordBilling(instanceId, func(b *billingInfo) {
-		b.outboundFetchs.Add(1)
+		b.outboundFetches.Add(1)
 		b.outboundFetchBytes.Add(bytes)
 	})
 }
