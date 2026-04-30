@@ -28,5 +28,9 @@ push-docker: build-docker
 	docker push peterolsen1/cloud-ramp:$(TAG)
 	docker push peterolsen1/cloud-ramp:latest
 
+push-docker-latest:
+       docker buildx build --platform linux/amd64 -t peterolsen1/cloud-ramp:latest --push .
+
+
 clean:
 	rm build

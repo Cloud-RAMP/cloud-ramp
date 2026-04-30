@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/Cloud-RAMP/wasm-sandbox/pkg/store"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
@@ -24,7 +23,6 @@ func InitializeSandbox(ctx context.Context, cfg store.SandboxStoreCfg) error {
 func Execute(ctx context.Context, event *wsevents.WSEventInfo) error {
 	err := sandbox.ExecuteOnModule(ctx, event)
 	if err != nil {
-		fmt.Println("Failed to execute properly:", err)
 		return err
 	}
 
