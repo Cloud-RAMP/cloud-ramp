@@ -89,6 +89,7 @@ func (b *billingInfo) dumpSingleServicie(ctx context.Context, serviceId string) 
 	_, err = ref.Set(ctx, map[string]any{
 		"redisReads":          gfirestore.Increment(int64(b.redisReads.Swap(0))),
 		"redisWrites":         gfirestore.Increment(int64(b.redisWrites.Swap(0))),
+		"redisPublishes":      gfirestore.Increment(int64(b.redisPublishes.Swap(0))),
 		"firestoreReads":      gfirestore.Increment(int64(b.firestoreReads.Swap(0))),
 		"firestoreWrites":     gfirestore.Increment(int64(b.firestoreWrites.Swap(0))),
 		"firestoreWriteBytes": gfirestore.Increment(int64(b.firestoreWriteBytes.Swap(0))),
