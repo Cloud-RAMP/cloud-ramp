@@ -2,7 +2,6 @@ package billing
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,7 +67,6 @@ func OnBillingDump() error {
 	defer billing.mu.RUnlock()
 
 	for id, b := range billing.internalMap {
-		fmt.Println(b.Debug())
 		err := b.dumpSingleServicie(ctx, id)
 		if err != nil {
 			return err
@@ -105,22 +103,22 @@ func (b *billingInfo) dumpSingleServicie(ctx context.Context, serviceId string) 
 	return err
 }
 
-func (b *billingInfo) Debug() string {
-	return fmt.Sprintf(
-		"Redis:     reads=%d  writes=%d  publishes=%d\n"+
-			"Firestore: reads=%d (%d bytes)  writes=%d (%d bytes)\n"+
-			"Fetches:   count=%d (%d bytes)\n"+
-			"HTTP:      inbound=%d  outbound=%d bytes",
-		b.redisReads.Load(),
-		b.redisWrites.Load(),
-		b.redisPublishes.Load(),
-		b.firestoreReads.Load(),
-		b.firestoreReadBytes.Load(),
-		b.firestoreWrites.Load(),
-		b.firestoreWriteBytes.Load(),
-		b.outboundFetchs.Load(),
-		b.outboundFetchBytes.Load(),
-		b.inboundRequests.Load(),
-		b.outboundBytes.Load(),
-	)
-}
+// func (b *billingInfo) Debug() string {
+// 	return fmt.Sprintf(
+// 		"Redis:     reads=%d  writes=%d  publishes=%d\n"+
+// 			"Firestore: reads=%d (%d bytes)  writes=%d (%d bytes)\n"+
+// 			"Fetches:   count=%d (%d bytes)\n"+
+// 			"HTTP:      inbound=%d  outbound=%d bytes",
+// 		b.redisReads.Load(),
+// 		b.redisWrites.Load(),
+// 		b.redisPublishes.Load(),
+// 		b.firestoreReads.Load(),
+// 		b.firestoreReadBytes.Load(),
+// 		b.firestoreWrites.Load(),
+// 		b.firestoreWriteBytes.Load(),
+// 		b.outboundFetchs.Load(),
+// 		b.outboundFetchBytes.Load(),
+// 		b.inboundRequests.Load(),
+// 		b.outboundBytes.Load(),
+// 	)
+// }
