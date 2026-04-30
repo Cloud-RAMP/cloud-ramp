@@ -7,7 +7,7 @@ import "time"
 // in a production system, we would probably load config with a yaml file.
 // for simplicity, we can just define variables here
 
-const USE_FIRESTORE = false
+const USE_FIRESTORE = true
 
 // How often logs for each instance will be dumped to firestore.
 //
@@ -37,13 +37,13 @@ const MAX_REQUESTS_PER_WINDOW = 1000
 // How often we dump local rates to Redis
 //
 // We can assume that most IPs will only connect to one server, unless they know their stuff
-const RATE_DUMP_INTERVAL_SECONDS = 10
+const RATE_DUMP_INTERVAL_SECONDS = 30
 
 // Number of seconds we give a lost connection to reconnect. If not within this window, they will be given a new ID
-const IP_RECONNECT_TTL_SECONDS = 30
+const IP_RECONNECT_TTL_SECONDS = 120
 
 // How often we dump billing data to firestore
-const BILLING_DUMP_SECONDS = 10
+const BILLING_DUMP_SECONDS = 60
 
 const MODULE_CLEANUP_INTERVAL_SECONDS = 60
 const MAX_MODULE_IDLE_TIME_SECONDS = 60
