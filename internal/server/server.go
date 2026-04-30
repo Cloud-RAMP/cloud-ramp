@@ -14,6 +14,7 @@ import (
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/limiter"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
@@ -57,7 +58,7 @@ func Start(ctx context.Context) {
 
 	if cfg.USE_FIRESTORE {
 		logger.ServerInfo("Dumping logs")
-		err := logger.OnDump()
+		err := firestore.OnLogDump()
 		if err != nil {
 			logger.ServerError("Dumping logs in shutdown", err)
 		}

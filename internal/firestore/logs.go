@@ -1,4 +1,4 @@
-package logger
+package firestore
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
-	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 )
 
 func init() {
@@ -20,16 +20,16 @@ func init() {
 	ticker := time.NewTicker(cfg.LOG_DUMP_INTERVAL_SECONDS * time.Second)
 	go func() {
 		for range ticker.C {
-			ServerInfo("Dumping Firestore logs")
-			err := OnDump()
+			logger.ServerInfo("Dumping Firestore logs")
+			err := OnLogDump()
 			if err != nil {
-				ServerError("Dumping logs", err)
+				logger.ServerError("Dumping logs", err)
 			}
 		}
 	}()
 }
 
-func OnDump() error {
+func OnLogDump() error {
 	const root = "/tmp/cloudramp/logs"
 
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -65,7 +65,7 @@ func dumpSingleServiceLogs(path, instanceId string) error {
 		return err
 	}
 
-	client, err := firestore.Client()
+	client, err := Client()
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func dumpSingleServiceLogs(path, instanceId string) error {
 		return fmt.Errorf("failed writing log doc for instance %s: %w", instanceId, err)
 	}
 
-	err = removeLogger(instanceId)
+	err = logger.RemoveLogger(instanceId)
 	if err != nil {
 		return err
 	}

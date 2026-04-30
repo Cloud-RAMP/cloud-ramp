@@ -42,7 +42,10 @@ const RATE_DUMP_INTERVAL_SECONDS = 10
 // Number of seconds we give a lost connection to reconnect. If not within this window, they will be given a new ID
 const IP_RECONNECT_TTL_SECONDS = 30
 
+const BILLING_DUMP_SECONDS = 10
+
 // time.Duration objects from config varaibles. Not necessary to modify
 const RATE_TTL = time.Duration(RATE_LIMIT_WINDOW_SECONDS * time.Second)
 const RATE_DUMP_INTERVAL = time.Duration(RATE_DUMP_INTERVAL_SECONDS * time.Second)
 const IP_RECONNECT_TTL = time.Duration(IP_RECONNECT_TTL_SECONDS * time.Second)
+const BILLING_DUMP_INTERVAL = time.Duration(BILLING_DUMP_SECONDS * time.Second)
