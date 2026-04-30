@@ -37,12 +37,21 @@ const MAX_REQUESTS_PER_WINDOW = 1000
 // How often we dump local rates to Redis
 //
 // We can assume that most IPs will only connect to one server, unless they know their stuff
-const RATE_DUMP_INTERVAL_SECONDS = 10
+const RATE_DUMP_INTERVAL_SECONDS = 30
 
 // Number of seconds we give a lost connection to reconnect. If not within this window, they will be given a new ID
-const IP_RECONNECT_TTL_SECONDS = 30
+const IP_RECONNECT_TTL_SECONDS = 120
+
+// How often we dump billing data to firestore
+const BILLING_DUMP_SECONDS = 60
+
+const MODULE_CLEANUP_INTERVAL_SECONDS = 60
+const MAX_MODULE_IDLE_TIME_SECONDS = 60
 
 // time.Duration objects from config varaibles. Not necessary to modify
 const RATE_TTL = time.Duration(RATE_LIMIT_WINDOW_SECONDS * time.Second)
 const RATE_DUMP_INTERVAL = time.Duration(RATE_DUMP_INTERVAL_SECONDS * time.Second)
 const IP_RECONNECT_TTL = time.Duration(IP_RECONNECT_TTL_SECONDS * time.Second)
+const BILLING_DUMP_INTERVAL = time.Duration(BILLING_DUMP_SECONDS * time.Second)
+const MODULE_CLEANUP_INTERVAL = time.Duration(MODULE_CLEANUP_INTERVAL_SECONDS * time.Second)
+const MAX_MODULE_IDLE_TIME = time.Duration(MAX_MODULE_IDLE_TIME_SECONDS * time.Second)

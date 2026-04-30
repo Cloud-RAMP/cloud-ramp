@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/billing"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 )
@@ -37,5 +38,6 @@ func FetchHandler(event *wasmevents.WASMEventInfo) (string, error) {
 		return "", err
 	}
 
+	billing.OutboundFetch(event.InstanceId, uint64(len(body)))
 	return string(respBody), nil
 }

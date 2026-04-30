@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/billing"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/comm"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
@@ -27,6 +28,8 @@ func SendMessageHandler(event *wasmevents.WASMEventInfo) (string, error) {
 			Payload:   event.Payload[1],
 		})
 	}
+
+	billing.RedisPublish(event.InstanceId)
 
 	return "", redis.SendMessage(context.Background(),
 		event.InstanceId,

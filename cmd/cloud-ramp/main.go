@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
@@ -55,8 +54,8 @@ func main() {
 
 	// These values will probably need to be changed later to ones that make sense for the system
 	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
-		CleanupInterval:    30 * time.Second, // make this lower in production
-		MaxIdleTime:        20 * time.Second,
+		CleanupInterval:    cfg.MODULE_CLEANUP_INTERVAL,
+		MaxIdleTime:        cfg.MAX_MODULE_IDLE_TIME,
 		MemoryLimitPages:   10,
 		MaxActiveModules:   10,
 		CloseOnContextDone: true,

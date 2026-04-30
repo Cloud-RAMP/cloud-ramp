@@ -49,7 +49,7 @@ func getLogger(instanceId string) *slog.Logger {
 	return logger
 }
 
-func removeLogger(instanceId string) error {
+func RemoveLogger(instanceId string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
