@@ -53,4 +53,4 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 )
 
-replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox
+// replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox
