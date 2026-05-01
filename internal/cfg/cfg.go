@@ -2,12 +2,18 @@ package cfg
 
 import "time"
 
+const (
+	DEV int = iota
+	PROD
+)
+const ENV = PROD
+
 // package to keep simple config variables.
 //
 // in a production system, we would probably load config with a yaml file.
 // for simplicity, we can just define variables here
 
-const USE_FIRESTORE = true
+var USE_FIRESTORE bool
 
 // How often logs for each instance will be dumped to firestore.
 //
@@ -24,7 +30,7 @@ const MSG_JOIN_LEAVE = false
 // If this value is true, we use the loader that pulls from the local filesystem
 //
 // Else, we will pull WASM modules from vercel blob storage
-const USE_MOCK_LOADER = false
+var USE_MOCK_LOADER bool
 
 // If set to true, rate limiting will be enforced
 const RATE_LIMIT = true
@@ -45,7 +51,10 @@ const IP_RECONNECT_TTL_SECONDS = 120
 // How often we dump billing data to firestore
 const BILLING_DUMP_SECONDS = 60
 
+// How often modules are cleaned up
 const MODULE_CLEANUP_INTERVAL_SECONDS = 60
+
+// The max amount of time a module can be idle until
 const MAX_MODULE_IDLE_TIME_SECONDS = 60
 
 // time.Duration objects from config varaibles. Not necessary to modify
@@ -55,3 +64,13 @@ const IP_RECONNECT_TTL = time.Duration(IP_RECONNECT_TTL_SECONDS * time.Second)
 const BILLING_DUMP_INTERVAL = time.Duration(BILLING_DUMP_SECONDS * time.Second)
 const MODULE_CLEANUP_INTERVAL = time.Duration(MODULE_CLEANUP_INTERVAL_SECONDS * time.Second)
 const MAX_MODULE_IDLE_TIME = time.Duration(MAX_MODULE_IDLE_TIME_SECONDS * time.Second)
+
+func init() {
+	if ENV == DEV {
+		USE_FIRESTORE = false
+		USE_MOCK_LOADER = true
+	} else {
+		USE_FIRESTORE = true
+		USE_MOCK_LOADER = false
+	}
+}
