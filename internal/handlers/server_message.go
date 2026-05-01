@@ -30,7 +30,6 @@ func ServerMessageHandler(event *wasmevents.WASMEventInfo) (string, error) {
 	}
 
 	billing.RedisPublish(event.InstanceId)
-	fmt.Println("FUCKK!!!!")
 
 	return "", redis.SendMessage(context.Background(),
 		event.InstanceId,

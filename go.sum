@@ -10,8 +10,8 @@ cloud.google.com/go/firestore v1.21.0 h1:BhopUsx7kh6NFx77ccRsHhrtkbJUmDAxNY3uapW
 cloud.google.com/go/firestore v1.21.0/go.mod h1:1xH6HNcnkf/gGyR8udd6pFO4Z7GWJSwLKQMx/u6UrP4=
 cloud.google.com/go/longrunning v0.7.0 h1:FV0+SYF1RIj59gyoWDRi45GiYUMM3K1qO51qoboQT1E=
 cloud.google.com/go/longrunning v0.7.0/go.mod h1:ySn2yXmjbK9Ba0zsQqunhDkYi0+9rlXIwnoAf+h+TPY=
-github.com/Cloud-RAMP/wasm-sandbox v1.1.0 h1:dKmhcC0rYJpK3e+sotHC0I6U9GkL5eo2p/MK2gB1DAc=
-github.com/Cloud-RAMP/wasm-sandbox v1.1.0/go.mod h1:pNvv4MRNyUlc2rraTTqDJSbP+6cfNhchNn3FkUbBgG8=
+github.com/Cloud-RAMP/wasm-sandbox v1.1.1 h1:DcLBq1hx8FK1xL4UOf6zUeikpYTOi67rVWtEhouMA/k=
+github.com/Cloud-RAMP/wasm-sandbox v1.1.1/go.mod h1:pNvv4MRNyUlc2rraTTqDJSbP+6cfNhchNn3FkUbBgG8=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=
