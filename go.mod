@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	cloud.google.com/go/firestore v1.21.0
-	github.com/Cloud-RAMP/wasm-sandbox v1.1.0
+	github.com/Cloud-RAMP/wasm-sandbox v1.1.1
 	github.com/gobwas/ws v1.4.0
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.18.0
@@ -53,4 +53,4 @@ require (
 	golang.org/x/sys v0.38.0 // indirect
 )
 
-// replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox
+replace github.com/Cloud-RAMP/wasm-sandbox => ../wasm-sandbox

@@ -11,6 +11,7 @@ type CommEventType int
 
 const (
 	SEND_MESSAGE CommEventType = iota
+	SERVER_MESSAGE
 	BROADCAST
 	LEAVE
 	JOIN
@@ -19,6 +20,7 @@ const (
 
 var commEventTypeToString = map[CommEventType]string{
 	SEND_MESSAGE:     "SEND_MESSAGE",
+	SERVER_MESSAGE:   "SERVER_MESSAGE",
 	BROADCAST:        "BROADCAST",
 	LEAVE:            "LEAVE",
 	JOIN:             "JOIN",
@@ -27,6 +29,7 @@ var commEventTypeToString = map[CommEventType]string{
 
 var stringToCommEventType = map[string]CommEventType{
 	"SEND_MESSAGE":     SEND_MESSAGE,
+	"SERVER_MESSAGE":   SERVER_MESSAGE,
 	"BROADCAST":        BROADCAST,
 	"LEAVE":            LEAVE,
 	"JOIN":             JOIN,

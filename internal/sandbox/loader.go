@@ -49,7 +49,7 @@ func LoaderFunction(ctx context.Context, moduleId string) ([]byte, error) {
 }
 
 func DummyLoaderFunction(ctx context.Context, moduleId string) ([]byte, error) {
-	file, err := os.ReadFile("../wasm-sandbox/example/build/release.wasm")
+	file, err := os.ReadFile("../cloud-ramp-example/build/release.wasm")
 	if err != nil {
 		return nil, err
 	}
