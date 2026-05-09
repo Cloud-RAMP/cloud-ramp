@@ -25,9 +25,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const TESTING_BASE_URL = "ws://localhost:8080"
+const TESTING_BASE_URL = "wss://cloud-ramp-578278759386.us-central1.run.app"
 const TESTING_MODULE_ID = "rP2gIxhkw7xHVpwGOX6g"
-const WARMUP = true
+const ONLINE = true
+const WARMUP = false
 
 type sample struct {
 	ts      int64
@@ -49,12 +50,14 @@ func TestMain(m *testing.M) {
 	parentCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := setup(parentCtx); err != nil {
-		fmt.Println("Setup failed:", err)
-		os.Exit(1)
-	}
+	if !ONLINE {
+		if err := setup(parentCtx); err != nil {
+			fmt.Println("Setup failed:", err)
+			os.Exit(1)
+		}
 
-	time.Sleep(500 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	if WARMUP {
 		url := fmt.Sprintf("%s/%s/a", TESTING_BASE_URL, TESTING_MODULE_ID)
@@ -119,54 +122,57 @@ func setup(ctx context.Context) error {
 	return nil
 }
 
-func BenchmarkLatencyOverTime(b *testing.B) {
+func TestLatencyOverTime(t *testing.T) {
+	duration := 30 * time.Second
 	url := fmt.Sprintf("%s/%s/a", TESTING_BASE_URL, TESTING_MODULE_ID)
 	conn, _, _, err := ws.Dialer{}.Dial(context.Background(), url)
 	if err != nil {
-		b.Fatalf("Failed to connect: %v", err)
+		t.Fatalf("Failed to connect: %v", err)
 	}
 	defer conn.Close()
 
 	var samples []sample
-
 	var MESSAGE = []byte("hello, websockets!")
-	first_timestamp := time.Now().UnixNano()
+	firstTimestamp := time.Now().UnixMilli()
 
-	for b.Loop() {
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+
+	for ctx.Err() == nil {
 		start := time.Now()
 
 		err := wsutil.WriteClientMessage(conn, ws.OpText, MESSAGE)
 		if err != nil {
-			b.Fatalf("Failed write: %e", err)
+			t.Fatalf("Failed write: %v", err)
 		}
 
 		_, err = wsutil.ReadServerMessage(conn, nil)
 		if err != nil {
-			b.Fatalf("Failed read message: %e", err)
+			t.Fatalf("Failed read: %v", err)
 		}
 
 		samples = append(samples, sample{
-			ts:      start.UnixNano() - first_timestamp,
-			elapsed: time.Since(start).Nanoseconds(),
+			ts:      start.UnixMilli() - firstTimestamp,
+			elapsed: time.Since(start).Milliseconds(),
 		})
 	}
 
-	writeCSV(b, samples, "results/latency_results.csv")
+	writeCSV(t, samples, "results/latency_results.csv")
 }
 
-func writeCSV(b *testing.B, samples []sample, filename string) {
-	b.Helper()
+func writeCSV(t *testing.T, samples []sample, filename string) {
+	t.Helper()
 
 	f, err := os.Create(filename)
 	if err != nil {
-		b.Fatalf("Failed to create CSV: %v", err)
+		t.Fatalf("Failed to create CSV: %v", err)
 	}
 	defer f.Close()
 
 	w := csv.NewWriter(f)
 	defer w.Flush()
 
-	w.Write([]string{"timestamp_ns", "latency_ns"})
+	w.Write([]string{"timestamp_ms", "latency_ms"})
 	for _, s := range samples {
 		w.Write([]string{
 			strconv.FormatInt(s.ts, 10),
@@ -176,14 +182,14 @@ func writeCSV(b *testing.B, samples []sample, filename string) {
 }
 
 func TestLatencyVsThroughput(t *testing.T) {
-	rpsLevels := []int{13000, 15000, 17000, 19000, 21000, 23000, 25000, 0}
-	numConnections := 10
+	numConnections := 50
+	rpsLevels := []int{500, 1000, 1500, 2000, 3000}
 
 	var results []result
+	duration := 3 * time.Second
 
 	for _, targetRPS := range rpsLevels {
 		t.Run(fmt.Sprintf("target_rps=%d", targetRPS), func(t *testing.T) {
-			duration := 2 * time.Second
 			var (
 				mu      sync.Mutex
 				samples []int64
@@ -192,7 +198,7 @@ func TestLatencyVsThroughput(t *testing.T) {
 
 			var limiter *rate.Limiter
 			if targetRPS > 0 {
-				limiter = rate.NewLimiter(rate.Limit(targetRPS), targetRPS)
+				limiter = rate.NewLimiter(rate.Limit(targetRPS), numConnections)
 			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), duration)
