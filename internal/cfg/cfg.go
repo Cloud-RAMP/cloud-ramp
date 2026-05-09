@@ -22,7 +22,7 @@ const (
 	LOG_NONE // 3
 )
 
-var LOG_LEVEL = LOG_INFO
+var LOG_LEVEL = LOG_ERROR
 
 // package to keep simple config variables.
 //
@@ -49,7 +49,7 @@ const MSG_JOIN_LEAVE = false
 var USE_MOCK_LOADER bool
 
 // If set to true, rate limiting will be enforced
-const RATE_LIMIT = true
+var RATE_LIMIT = true
 
 // If an IP surpasses MAX_REQEUSTS_PER_WINDOW in RATE_LIMIT_WINDOW_SECONDS,
 // they will be backed off.
