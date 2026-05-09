@@ -22,7 +22,7 @@ const (
 	LOG_NONE // 3
 )
 
-var LOG_LEVEL = LOG_INFO
+var LOG_LEVEL = LOG_ERROR
 
 // package to keep simple config variables.
 //

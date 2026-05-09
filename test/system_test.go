@@ -5,7 +5,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,14 +22,24 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 )
 
 const TESTING_BASE_URL = "ws://localhost:8080"
 const TESTING_MODULE_ID = "rP2gIxhkw7xHVpwGOX6g"
+const WARMUP = true
 
 type sample struct {
 	ts      int64
 	elapsed int64
+}
+
+type result struct {
+	targetRPS int
+	actualRPS float64
+	p50       int64
+	p95       int64
+	p99       int64
 }
 
 func TestMain(m *testing.M) {
@@ -42,6 +55,23 @@ func TestMain(m *testing.M) {
 	}
 
 	time.Sleep(500 * time.Millisecond)
+
+	if WARMUP {
+		url := fmt.Sprintf("%s/%s/a", TESTING_BASE_URL, TESTING_MODULE_ID)
+		conn, _, _, err := ws.Dialer{}.Dial(context.Background(), url)
+		if err != nil {
+			fmt.Println("Failed to send warmup")
+			return
+		}
+
+		for range 10 {
+			wsutil.WriteClientMessage(conn, ws.OpText, []byte("warmup"))
+			wsutil.ReadServerMessage(conn, nil)
+		}
+
+		conn.Close()
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	os.Exit(m.Run())
 }
@@ -100,6 +130,8 @@ func BenchmarkLatencyOverTime(b *testing.B) {
 	var samples []sample
 
 	var MESSAGE = []byte("hello, websockets!")
+	first_timestamp := time.Now().UnixNano()
+
 	for b.Loop() {
 		start := time.Now()
 
@@ -114,18 +146,18 @@ func BenchmarkLatencyOverTime(b *testing.B) {
 		}
 
 		samples = append(samples, sample{
-			ts:      start.UnixMilli(),
+			ts:      start.UnixNano() - first_timestamp,
 			elapsed: time.Since(start).Nanoseconds(),
 		})
 	}
 
-	writeCSV(b, samples)
+	writeCSV(b, samples, "results/latency_results.csv")
 }
 
-func writeCSV(b *testing.B, samples []sample) {
+func writeCSV(b *testing.B, samples []sample, filename string) {
 	b.Helper()
 
-	f, err := os.Create("results/latency_results.csv")
+	f, err := os.Create(filename)
 	if err != nil {
 		b.Fatalf("Failed to create CSV: %v", err)
 	}
@@ -134,11 +166,130 @@ func writeCSV(b *testing.B, samples []sample) {
 	w := csv.NewWriter(f)
 	defer w.Flush()
 
-	w.Write([]string{"timestamp_ms", "latency_ms"})
+	w.Write([]string{"timestamp_ns", "latency_ns"})
 	for _, s := range samples {
 		w.Write([]string{
 			strconv.FormatInt(s.ts, 10),
 			strconv.FormatInt(s.elapsed, 10),
+		})
+	}
+}
+
+func TestLatencyVsThroughput(t *testing.T) {
+	rpsLevels := []int{13000, 15000, 17000, 19000, 21000, 23000, 25000, 0}
+	numConnections := 10
+
+	var results []result
+
+	for _, targetRPS := range rpsLevels {
+		t.Run(fmt.Sprintf("target_rps=%d", targetRPS), func(t *testing.T) {
+			duration := 2 * time.Second
+			var (
+				mu      sync.Mutex
+				samples []int64
+				total   atomic.Int64
+			)
+
+			var limiter *rate.Limiter
+			if targetRPS > 0 {
+				limiter = rate.NewLimiter(rate.Limit(targetRPS), targetRPS)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), duration)
+			defer cancel()
+
+			var wg sync.WaitGroup
+			for range numConnections {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+
+					url := fmt.Sprintf("%s/%s/a", TESTING_BASE_URL, TESTING_MODULE_ID)
+					conn, _, _, err := ws.Dialer{}.Dial(context.Background(), url)
+					if err != nil {
+						t.Errorf("Failed to connect: %v", err)
+						return
+					}
+					defer conn.Close()
+
+					var MESSAGE = []byte("hello, websockets!")
+					for {
+						if ctx.Err() != nil {
+							return
+						}
+						if limiter != nil {
+							limiter.Wait(ctx)
+						}
+
+						start := time.Now()
+						err := wsutil.WriteClientMessage(conn, ws.OpText, MESSAGE)
+						if err != nil {
+							t.Logf("rps=%d goroutine write error: %v", targetRPS, err)
+							return
+						}
+						_, err = wsutil.ReadServerMessage(conn, nil)
+						if err != nil {
+							t.Logf("rps=%d goroutine read error: %v", targetRPS, err)
+							return
+						}
+						elapsed := time.Since(start).Nanoseconds()
+
+						mu.Lock()
+						samples = append(samples, elapsed)
+						mu.Unlock()
+						total.Add(1)
+					}
+				}()
+			}
+
+			wg.Wait()
+
+			slices.Sort(samples)
+			actualRPS := float64(total.Load()) / duration.Seconds()
+
+			results = append(results, result{
+				targetRPS: targetRPS,
+				actualRPS: actualRPS,
+				p50:       percentile(samples, 0.50),
+				p95:       percentile(samples, 0.95),
+				p99:       percentile(samples, 0.99),
+			})
+		})
+	}
+
+	writeThroughputCSV(t, results)
+}
+
+func percentile(samples []int64, p float64) int64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	idx := int(p * float64(len(samples)))
+	if idx >= len(samples) {
+		idx = len(samples) - 1
+	}
+	return samples[idx]
+}
+
+func writeThroughputCSV(t *testing.T, results []result) {
+	t.Helper()
+	f, err := os.Create("results/throughput_results.csv")
+	if err != nil {
+		t.Fatalf("Failed to create CSV: %v", err)
+	}
+	defer f.Close()
+
+	w := csv.NewWriter(f)
+	defer w.Flush()
+
+	w.Write([]string{"target_rps", "actual_rps", "p50_ns", "p95_ns", "p99_ns"})
+	for _, r := range results {
+		w.Write([]string{
+			strconv.Itoa(r.targetRPS),
+			strconv.FormatFloat(r.actualRPS, 'f', 2, 64),
+			strconv.FormatInt(r.p50, 10),
+			strconv.FormatInt(r.p95, 10),
+			strconv.FormatInt(r.p99, 10),
 		})
 	}
 }
