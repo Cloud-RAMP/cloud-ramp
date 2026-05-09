@@ -20,6 +20,10 @@ func InitializeSandbox(ctx context.Context, cfg store.SandboxStoreCfg) error {
 	return nil
 }
 
+func IsInitialized() bool {
+	return sandbox != nil
+}
+
 func Execute(ctx context.Context, event *wsevents.WSEventInfo) error {
 	err := sandbox.ExecuteOnModule(ctx, event)
 	if err != nil {
