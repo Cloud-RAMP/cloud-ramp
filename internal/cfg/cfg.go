@@ -8,6 +8,22 @@ const (
 )
 const ENV = PROD
 
+const (
+	// Log info, warn, error
+	LOG_INFO int = iota //0
+
+	// Log warn, error
+	LOG_WARN // 1
+
+	// Log error
+	LOG_ERROR // 2
+
+	// No logging
+	LOG_NONE // 3
+)
+
+var LOG_LEVEL = LOG_INFO
+
 // package to keep simple config variables.
 //
 // in a production system, we would probably load config with a yaml file.
