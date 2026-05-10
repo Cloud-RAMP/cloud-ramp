@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/billing"
@@ -183,14 +182,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// only execute cleanup code once
 	var oneClose sync.Once
-	// var oneError sync.Once
-	var closed atomic.Bool
 
 	onConnectionClose := func() {
-		if closed.Swap(true) {
-			return
-		}
-
 		oneClose.Do(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cleanupCancel()
@@ -220,41 +213,6 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			ctxClose()
 		})
 	}
-
-	// onConnectionError := func(err error) {
-	// 	fmt.Println("running connection error")
-	// 	if closed.Swap(true) {
-	// 		return
-	// 	}
-
-	// 	oneError.Do(func() {
-	// 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	// 		defer cleanupCancel()
-
-	// 		logger.ServerError("WebSocket write failed", err)
-	// 		logger.Info(instanceId, fmt.Sprintf("Client error writing: %v", err), slog.Attr{
-	// 			Key:   "connectionId",
-	// 			Value: slog.StringValue(connId),
-	// 		}, slog.Attr{
-	// 			Key:   "roomId",
-	// 			Value: slog.StringValue(room),
-	// 		})
-
-	// 		event := baseEvent
-	// 		event.Timestamp = time.Now().UnixMilli()
-	// 		event.EventType = wsevents.ON_ERROR
-	// 		event.Payload = err.Error()
-	// 		if err := sandbox.Execute(cleanupCtx, &event); err != nil {
-	// 			logger.ServerError("Failed to execute onError event", err)
-	// 		}
-
-	// 		limiter.DumpConnectionRequests(ip)
-	// 		redis.LeaveRoom(cleanupCtx, instanceId, room, connId, ip)
-	// 		ctxClose()
-	// 		comm.CloseConn(instanceId, room, connId)
-	// 		conn.Close()
-	// 	})
-	// }
 
 	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
