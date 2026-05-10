@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"math/rand"
 	"os"
 	"slices"
 	"strconv"
@@ -25,10 +26,11 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const TESTING_BASE_URL = "wss://cloud-ramp-578278759386.us-central1.run.app"
+// const TESTING_BASE_URL = "wss://cloud-ramp-578278759386.us-central1.run.app"
+const TESTING_BASE_URL = "ws://localhost:8080"
 const TESTING_MODULE_ID = "rP2gIxhkw7xHVpwGOX6g"
 const ONLINE = true
-const WARMUP = false
+const WARMUP = true
 
 type sample struct {
 	ts      int64
@@ -182,11 +184,11 @@ func writeCSV(t *testing.T, samples []sample, filename string) {
 }
 
 func TestLatencyVsThroughput(t *testing.T) {
-	numConnections := 50
-	rpsLevels := []int{500, 1000, 1500, 2000, 3000}
+	numConnections := 10
+	rpsLevels := []int{5000, 10000, 15000, 20000, 25000, 30000, 32000, 34000, 36000}
 
 	var results []result
-	duration := 3 * time.Second
+	duration := 10 * time.Second
 
 	for _, targetRPS := range rpsLevels {
 		t.Run(fmt.Sprintf("target_rps=%d", targetRPS), func(t *testing.T) {
@@ -216,7 +218,12 @@ func TestLatencyVsThroughput(t *testing.T) {
 						t.Errorf("Failed to connect: %v", err)
 						return
 					}
-					defer conn.Close()
+
+					defer func() {
+						time.Sleep(time.Duration(rand.Intn(200)) * time.Millisecond)
+						wsutil.WriteClientMessage(conn, ws.OpClose, ws.NewCloseFrameBody(ws.StatusNormalClosure, ""))
+						conn.Close()
+					}()
 
 					var MESSAGE = []byte("hello, websockets!")
 					for {
@@ -231,12 +238,12 @@ func TestLatencyVsThroughput(t *testing.T) {
 						err := wsutil.WriteClientMessage(conn, ws.OpText, MESSAGE)
 						if err != nil {
 							t.Logf("rps=%d goroutine write error: %v", targetRPS, err)
-							return
+							os.Exit(1)
 						}
 						_, err = wsutil.ReadServerMessage(conn, nil)
 						if err != nil {
 							t.Logf("rps=%d goroutine read error: %v", targetRPS, err)
-							return
+							os.Exit(1)
 						}
 						elapsed := time.Since(start).Nanoseconds()
 
@@ -249,6 +256,8 @@ func TestLatencyVsThroughput(t *testing.T) {
 			}
 
 			wg.Wait()
+
+			time.Sleep(500 * time.Millisecond)
 
 			slices.Sort(samples)
 			actualRPS := float64(total.Load()) / duration.Seconds()

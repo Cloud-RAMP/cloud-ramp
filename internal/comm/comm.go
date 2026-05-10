@@ -147,26 +147,27 @@ func CloseConn(instanceId, roomId, connId string) {
 
 	mu.Lock()
 	room, ok := commMap[roomKey]
-	mu.Unlock()
-
 	if !ok {
+		mu.Unlock()
 		return
 	}
 
 	room.mu.Lock()
-	defer func() {
-		room.mu.Unlock()
-		if len(room.conns) == 0 {
-			mu.Lock()
-			delete(commMap, roomKey)
-			mu.Unlock()
-		}
-	}()
 
+	// Close the specific connection's channel
 	if userChan, ok := room.conns[connId]; ok {
 		close(userChan)
 		delete(room.conns, connId)
 	}
+
+	isEmpty := len(room.conns) == 0
+	room.mu.Unlock()
+
+	if isEmpty {
+		delete(commMap, roomKey)
+	}
+
+	mu.Unlock()
 }
 
 // Returns all connections in a room
