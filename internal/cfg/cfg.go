@@ -22,12 +22,13 @@ const (
 	LOG_NONE // 3
 )
 
-var LOG_LEVEL = LOG_ERROR
-
 // package to keep simple config variables.
 //
 // in a production system, we would probably load config with a yaml file.
 // for simplicity, we can just define variables here
+
+// See log level enum in cfg.go for more info
+var LOG_LEVEL int
 
 var USE_FIRESTORE bool
 
@@ -84,9 +85,11 @@ const MAX_MODULE_IDLE_TIME = time.Duration(MAX_MODULE_IDLE_TIME_SECONDS * time.S
 func init() {
 	if ENV == DEV {
 		USE_FIRESTORE = false
-		USE_MOCK_LOADER = true
+		USE_MOCK_LOADER = false
+		LOG_LEVEL = LOG_ERROR
 	} else {
 		USE_FIRESTORE = true
 		USE_MOCK_LOADER = false
+		LOG_LEVEL = LOG_ERROR
 	}
 }
