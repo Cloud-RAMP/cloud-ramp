@@ -49,6 +49,10 @@ func init() {
 //
 // Also clear out any disconnections
 func OnDump() error {
+	if !cfg.RATE_LIMIT {
+		return nil
+	}
+
 	lockAll()
 	defer unlockAll()
 
@@ -77,6 +81,10 @@ func OnDump() error {
 //
 // Fetch existing rate limiting data from redis, backoff if necessary
 func RegisterNewConnection(ip string) (bool, error) {
+	if !cfg.RATE_LIMIT {
+		return false, nil
+	}
+
 	locks.lock(ip)
 	currentRequests, err := redis.GetCurrentRequests(ip)
 	if err != nil {
@@ -120,6 +128,10 @@ func RegisterNewConnection(ip string) (bool, error) {
 //   - The time since the start of their window is >= than the max
 //   - If the window is reset, their number of requests sent is reset as well
 func RegisterNewRequest(ip string) bool {
+	if !cfg.RATE_LIMIT {
+		return false
+	}
+
 	locks.lock(ip)
 	mapEntry := rateMap[ip]
 

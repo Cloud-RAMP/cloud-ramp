@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/billing"
@@ -266,14 +265,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// only execute cleanup code once
 	var oneClose sync.Once
-	var oneError sync.Once
-	var closed atomic.Bool
 
 	onConnectionClose := func() {
-		if closed.Swap(true) {
-			return
-		}
-
 		oneClose.Do(func() {
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cleanupCancel()
@@ -298,72 +291,36 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				slog.Error("Failed redis leave", "errMsg", err.Error())
 			}
-			ctxClose()
 			comm.CloseConn(instanceId, room, connId)
 			conn.Close()
-			observability.ConnectionClosed()
-		})
-	}
-
-	onConnectionError := func(err error) {
-		if closed.Swap(true) {
-			return
-		}
-
-		oneError.Do(func() {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cleanupCancel()
-
-			logger.ServerError("WebSocket write failed", err)
-			logger.Info(instanceId, fmt.Sprintf("Client error writing: %v", err), slog.Attr{
-				Key:   "connectionId",
-				Value: slog.StringValue(connId),
-			}, slog.Attr{
-				Key:   "roomId",
-				Value: slog.StringValue(room),
-			})
-
-			event := baseEvent
-			event.Timestamp = time.Now().UnixMilli()
-			event.EventType = wsevents.ON_ERROR
-			event.Payload = err.Error()
-			if err := executeSandbox(cleanupCtx, &event); err != nil {
-				logger.ServerError("Failed to execute onError event", err)
-			}
-
-			limiter.DumpConnectionRequests(ip)
-			redis.LeaveRoom(cleanupCtx, instanceId, room, connId, ip)
-			ctxClose()
-			comm.CloseConn(instanceId, room, connId)
-			conn.Close()
-			observability.ConnectionError()
 			observability.ConnectionClosed()
 		})
 	}
 
 	// Spin off two goroutines: one for receiving messages, one for sending
 	go handleExternalMessages(ctx, conn, commChan, redisChan, connId, instanceId, onConnectionClose)
+
 	func() {
 		// loop for duration of the connection
 		for {
 			select {
 			case <-ctx.Done():
+				fmt.Println("Request context complete, returning")
 				return
 			default:
 				// Read data from the client on the connection
 				// see https://datatracker.ietf.org/doc/html/rfc6455#section-5.5 for info on "op"
 				msg, op, err := wsutil.ReadClientData(conn)
-				if err == io.EOF {
-					onConnectionClose()
-					return
-				} else if err != nil {
-					// Client disconnected
-					if err.Error() == WS_NO_STATUS || err.Error() == WS_GOING_AWAY || ctx.Err() != nil {
-						onConnectionClose()
+				if err != nil {
+					if err.Error() == WS_NO_STATUS ||
+						err.Error() == WS_GOING_AWAY ||
+						strings.Contains(err.Error(), "1000") ||
+						strings.Contains(err.Error(), "use of closed network connection") ||
+						err == io.EOF {
 						return
 					}
 
-					onConnectionError(err)
+					logger.ServerError("Error reading client data", err)
 					return
 				}
 
@@ -374,7 +331,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				if backoff {
 					observability.RateLimited()
 					if err := limiter.BackoffWS(conn); err != nil {
-						onConnectionError(err)
+						// onConnectionError(err)
+						fmt.Println("backoff")
 						return
 					}
 
@@ -417,6 +375,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					// execute logs any errors
 					if err = executeSandbox(ctx, &event); err != nil {
 						logger.ServerError("Failed to execute onMessage event", err)
+						return
 					}
 				}
 			}
@@ -427,6 +386,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 // Helper function to be detached in a separate goroutine and handle connections from outside sources
 //
 // Messages can come from either redis or the same server
+// Modified handleExternalMessages that's resilient to channel closure
 func handleExternalMessages(
 	ctx context.Context,
 	conn net.Conn,
@@ -442,17 +402,24 @@ func handleExternalMessages(
 		select {
 		case <-ctx.Done():
 			return
+
 		case commEvent, ok := <-commChan:
 			if !ok {
+				// Channel closed - log and return
+				logger.Info(instanceId, "Comm channel closed, exiting write goroutine", slog.Attr{
+					Key:   "connectionId",
+					Value: slog.StringValue(connId),
+				})
 				return
 			}
 			observability.ExternalMessage()
 
-			// Send data to the connection
+			// Process message as before...
 			json, err := json.Marshal(commEvent)
 			if err != nil {
 				observability.ExternalMessageError()
 				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %v", err), slog.Attr{
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal: %v", err), slog.Attr{
 					Key:   "connectionId",
 					Value: slog.StringValue(connId),
 				})
@@ -467,11 +434,15 @@ func handleExternalMessages(
 			observability.OutboundMessage(len(json))
 		case redisEvent, ok := <-redisChan:
 			if !ok {
-				// channel closed
+				logger.Info(instanceId, "Redis channel closed, exiting write goroutine", slog.Attr{
+					Key:   "connectionId",
+					Value: slog.StringValue(connId),
+				})
 				return
 			}
 			observability.ExternalMessage()
 
+			// Process redis message as before...
 			event := &comm.CommEvent{}
 			err := json.Unmarshal([]byte(redisEvent.Payload), event)
 			if err != nil {
@@ -483,7 +454,6 @@ func handleExternalMessages(
 				continue
 			}
 
-			// this message is not meant for us, or we sent it
 			if (event.DstConn != "*" && event.DstConn != connId) || event.SrcConn == connId {
 				continue
 			}
@@ -495,7 +465,6 @@ func handleExternalMessages(
 			}
 			observability.OutboundMessage(len(redisEvent.Payload))
 
-			// connection is closed. returns to that the onConnectionClose function will run
 			if event.EventType == comm.CLOSE_CONNECTION {
 				return
 			}

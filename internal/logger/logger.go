@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/cfg"
 	wasmevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/wasm-events"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
 )
@@ -64,6 +65,10 @@ func RemoveLogger(instanceId string) error {
 }
 
 func Warn(instanceId, connectionId, info string) {
+	if cfg.LOG_LEVEL > cfg.LOG_WARN {
+		return
+	}
+
 	getLogger(instanceId).Warn(info, "instanceID", instanceId, "connectionID", connectionId)
 }
 
@@ -71,6 +76,10 @@ func Warn(instanceId, connectionId, info string) {
 func WASMEvent(event *wasmevents.WASMEventInfo) {
 	if event == nil {
 		Warn("unknown", "unknown", "WASMEvent called with nil event")
+		return
+	}
+
+	if cfg.LOG_LEVEL > cfg.LOG_INFO {
 		return
 	}
 
@@ -93,6 +102,10 @@ func WSEvent(event *wsevents.WSEventInfo) {
 		return
 	}
 
+	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+		return
+	}
+
 	getLogger(event.InstanceId).Info("WSEvent",
 		"connectionID",
 		event.ConnectionId,
@@ -107,6 +120,10 @@ func WSEvent(event *wsevents.WSEventInfo) {
 
 // Log a new connection
 func NewConnection(instanceId, ip, connectionId, roomId string) {
+	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+		return
+	}
+
 	getLogger(instanceId).Info("NewConnection",
 		"instanceId",
 		instanceId,
@@ -120,9 +137,17 @@ func NewConnection(instanceId, ip, connectionId, roomId string) {
 }
 
 func Info(instanceId string, msg string, attrs ...slog.Attr) {
+	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+		return
+	}
+
 	getLogger(instanceId).LogAttrs(context.Background(), slog.LevelInfo, msg, attrs...)
 }
 
 func Error(instanceId string, msg string, attrs ...slog.Attr) {
+	if cfg.LOG_LEVEL > cfg.LOG_ERROR {
+		return
+	}
+
 	getLogger(instanceId).LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
 }

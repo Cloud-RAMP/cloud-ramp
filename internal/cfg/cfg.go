@@ -8,10 +8,27 @@ const (
 )
 const ENV = PROD
 
+const (
+	// Log info, warn, error
+	LOG_INFO int = iota //0
+
+	// Log warn, error
+	LOG_WARN // 1
+
+	// Log error
+	LOG_ERROR // 2
+
+	// No logging
+	LOG_NONE // 3
+)
+
 // package to keep simple config variables.
 //
 // in a production system, we would probably load config with a yaml file.
 // for simplicity, we can just define variables here
+
+// See log level enum in cfg.go for more info
+var LOG_LEVEL int
 
 var USE_FIRESTORE bool
 
@@ -33,7 +50,7 @@ const MSG_JOIN_LEAVE = false
 var USE_MOCK_LOADER bool
 
 // If set to true, rate limiting will be enforced
-const RATE_LIMIT = true
+var RATE_LIMIT = false
 
 // If an IP surpasses MAX_REQEUSTS_PER_WINDOW in RATE_LIMIT_WINDOW_SECONDS,
 // they will be backed off.
@@ -68,9 +85,11 @@ const MAX_MODULE_IDLE_TIME = time.Duration(MAX_MODULE_IDLE_TIME_SECONDS * time.S
 func init() {
 	if ENV == DEV {
 		USE_FIRESTORE = false
-		USE_MOCK_LOADER = true
+		USE_MOCK_LOADER = false
+		LOG_LEVEL = LOG_ERROR
 	} else {
 		USE_FIRESTORE = true
 		USE_MOCK_LOADER = false
+		LOG_LEVEL = LOG_ERROR
 	}
 }
