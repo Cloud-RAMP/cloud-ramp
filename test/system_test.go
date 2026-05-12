@@ -186,9 +186,10 @@ func writeCSV(t *testing.T, samples []sample, filename string) {
 func TestLatencyVsThroughput(t *testing.T) {
 	numConnections := 10
 	rpsLevels := []int{5000, 10000, 15000, 20000, 25000, 30000, 32000, 34000, 36000}
+	// rpsLevels := []int{100, 125, 150, 175, 200, 225, 250}
 
 	var results []result
-	duration := 10 * time.Second
+	duration := 1 * time.Second
 
 	for _, targetRPS := range rpsLevels {
 		t.Run(fmt.Sprintf("target_rps=%d", targetRPS), func(t *testing.T) {
@@ -237,13 +238,13 @@ func TestLatencyVsThroughput(t *testing.T) {
 						start := time.Now()
 						err := wsutil.WriteClientMessage(conn, ws.OpText, MESSAGE)
 						if err != nil {
-							t.Logf("rps=%d goroutine write error: %v", targetRPS, err)
-							os.Exit(1)
+							t.Errorf("rps=%d goroutine write error: %v", targetRPS, err)
+							return
 						}
 						_, err = wsutil.ReadServerMessage(conn, nil)
 						if err != nil {
-							t.Logf("rps=%d goroutine read error: %v", targetRPS, err)
-							os.Exit(1)
+							t.Errorf("rps=%d goroutine read error: %v", targetRPS, err)
+							return
 						}
 						elapsed := time.Since(start).Nanoseconds()
 

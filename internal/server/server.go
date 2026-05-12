@@ -293,6 +293,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			}
 			comm.CloseConn(instanceId, room, connId)
 			conn.Close()
+			ctxClose()
 			observability.ConnectionClosed()
 		})
 	}
@@ -419,7 +420,6 @@ func handleExternalMessages(
 			if err != nil {
 				observability.ExternalMessageError()
 				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %v", err), slog.Attr{
-				logger.Error(instanceId, fmt.Sprintf("Failed to marshal: %v", err), slog.Attr{
 					Key:   "connectionId",
 					Value: slog.StringValue(connId),
 				})
@@ -458,11 +458,11 @@ func handleExternalMessages(
 				continue
 			}
 
-			billing.OutboundBytes(instanceId, uint64(len(redisEvent.Payload)))
 			if err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload)); err != nil {
 				observability.ExternalMessageError()
 				return
 			}
+			billing.OutboundBytes(instanceId, uint64(len(redisEvent.Payload)))
 			observability.OutboundMessage(len(redisEvent.Payload))
 
 			if event.EventType == comm.CLOSE_CONNECTION {
