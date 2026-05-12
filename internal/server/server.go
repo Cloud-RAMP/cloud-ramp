@@ -18,6 +18,7 @@ import (
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/firestore"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/limiter"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/observability"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/redis"
 	"github.com/Cloud-RAMP/cloud-ramp.git/internal/sandbox"
 	wsevents "github.com/Cloud-RAMP/wasm-sandbox/pkg/ws-events"
@@ -39,7 +40,7 @@ const WS_GOING_AWAY = "ws closed: 1001 "
 func Start(ctx context.Context) {
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: http.HandlerFunc(handleConnection),
+		Handler: http.HandlerFunc(routeRequest),
 	}
 
 	go func() {
@@ -83,7 +84,83 @@ func Start(ctx context.Context) {
 	logger.ServerInfo("Shutdown complete")
 }
 
+func routeRequest(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/healthz":
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	case "/readyz":
+		handleReadiness(w, r)
+	case "/metrics":
+		observability.MetricsHandler(w, r)
+	default:
+		handleConnection(w, r)
+	}
+}
+
+func handleReadiness(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	checks := map[string]string{
+		"redis":     "ok",
+		"sandbox":   "ok",
+		"firestore": "disabled",
+	}
+	status := http.StatusOK
+
+	if err := redis.Ping(ctx); err != nil {
+		checks["redis"] = err.Error()
+		status = http.StatusServiceUnavailable
+	}
+
+	if !sandbox.IsInitialized() {
+		checks["sandbox"] = "not initialized"
+		status = http.StatusServiceUnavailable
+	}
+
+	if cfg.USE_FIRESTORE {
+		checks["firestore"] = "ok"
+		if _, err := firestore.Client(); err != nil {
+			checks["firestore"] = err.Error()
+			status = http.StatusServiceUnavailable
+		}
+	}
+
+	writeJSON(w, status, map[string]any{
+		"status": statusText(status),
+		"checks": checks,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		logger.ServerError("Encoding JSON response", err)
+	}
+}
+
+func statusText(status int) string {
+	if status >= 200 && status < 300 {
+		return "ok"
+	}
+	return "unavailable"
+}
+
+func executeSandbox(ctx context.Context, event *wsevents.WSEventInfo) error {
+	start := time.Now()
+	err := sandbox.Execute(ctx, event)
+
+	eventType := "unknown"
+	if event != nil {
+		eventType = event.EventType.String()
+	}
+	observability.SandboxExecution(eventType, time.Since(start), err)
+	return err
+}
+
 func SendFailure(w http.ResponseWriter, r *http.Request) {
+	observability.ConnectionRejected()
 	w.WriteHeader(500)
 	fmt.Fprintf(w, "Failed to establish WebSocket connection")
 }
@@ -104,6 +181,8 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if backoff {
+		observability.RateLimited()
+		observability.ConnectionRejected()
 		limiter.BackoffHTTP(w, r)
 		return
 	}
@@ -112,6 +191,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 	if len(parts) < 2 {
 		logger.ServerError("Invalid request domain:", err)
+		observability.ConnectionRejected()
 		return
 	}
 	instanceId := parts[0]
@@ -133,6 +213,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		connIdUuid, err := uuid.NewV7()
 		if err != nil {
 			logger.ServerError("Failed to create uuid:", err)
+			observability.ConnectionRejected()
 			ctxClose()
 			return
 		}
@@ -153,6 +234,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 	redisChan, err := redis.JoinRoom(ctx, instanceId, room, connId)
 	if err != nil {
 		logger.Error(instanceId, fmt.Sprintf("Connection %s failed to join redis room: %v", connId, err))
+		observability.ConnectionRejected()
 		ctxClose()
 		return
 	}
@@ -165,12 +247,13 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 		ctxClose()
 		return
 	}
+	observability.ConnectionOpened()
 
 	// execute the initial on join event
 	event := baseEvent
 	event.Timestamp = time.Now().UnixMilli()
 	event.EventType = wsevents.ON_JOIN
-	if err = sandbox.Execute(ctx, &event); err != nil {
+	if err = executeSandbox(ctx, &event); err != nil {
 		logger.Error(instanceId, fmt.Sprintf("Failed to execute onJoin event: %v", err), slog.Attr{
 			Key:   "connectionId",
 			Value: slog.StringValue(connId),
@@ -199,7 +282,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			event := baseEvent
 			event.Timestamp = time.Now().UnixMilli()
 			event.EventType = wsevents.ON_LEAVE
-			if err := sandbox.Execute(cleanupCtx, &event); err != nil {
+			if err := executeSandbox(cleanupCtx, &event); err != nil {
 				logger.ServerError("Failed to execute on close", err)
 			}
 
@@ -210,7 +293,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 			}
 			comm.CloseConn(instanceId, room, connId)
 			conn.Close()
-			ctxClose()
+			observability.ConnectionClosed()
 		})
 	}
 
@@ -246,6 +329,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 				// Check rate limiter, do we need to backoff?
 				backoff := limiter.RegisterNewRequest(ip)
 				if backoff {
+					observability.RateLimited()
 					if err := limiter.BackoffWS(conn); err != nil {
 						// onConnectionError(err)
 						fmt.Println("backoff")
@@ -271,6 +355,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 
 				// user sent actual data
 				if op.IsData() {
+					observability.InboundMessage()
 					event := baseEvent
 					event.Timestamp = time.Now().UnixMilli()
 					event.Payload = string(msg)
@@ -288,7 +373,7 @@ func handleConnection(w http.ResponseWriter, r *http.Request) {
 					})
 
 					// execute logs any errors
-					if err = sandbox.Execute(ctx, &event); err != nil {
+					if err = executeSandbox(ctx, &event); err != nil {
 						logger.ServerError("Failed to execute onMessage event", err)
 						return
 					}
@@ -327,10 +412,13 @@ func handleExternalMessages(
 				})
 				return
 			}
+			observability.ExternalMessage()
 
 			// Process message as before...
 			json, err := json.Marshal(commEvent)
 			if err != nil {
+				observability.ExternalMessageError()
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal local communication json: %v", err), slog.Attr{
 				logger.Error(instanceId, fmt.Sprintf("Failed to marshal: %v", err), slog.Attr{
 					Key:   "connectionId",
 					Value: slog.StringValue(connId),
@@ -339,15 +427,11 @@ func handleExternalMessages(
 			}
 
 			billing.OutboundBytes(instanceId, uint64(len(json)))
-			err = wsutil.WriteServerMessage(conn, ws.OpText, json)
-			if err != nil {
-				logger.Error(instanceId, fmt.Sprintf("Write failed: %v", err), slog.Attr{
-					Key:   "connectionId",
-					Value: slog.StringValue(connId),
-				})
+			if err = wsutil.WriteServerMessage(conn, ws.OpText, json); err != nil {
+				observability.ExternalMessageError()
 				return
 			}
-
+			observability.OutboundMessage(len(json))
 		case redisEvent, ok := <-redisChan:
 			if !ok {
 				logger.Info(instanceId, "Redis channel closed, exiting write goroutine", slog.Attr{
@@ -356,11 +440,17 @@ func handleExternalMessages(
 				})
 				return
 			}
+			observability.ExternalMessage()
 
 			// Process redis message as before...
 			event := &comm.CommEvent{}
 			err := json.Unmarshal([]byte(redisEvent.Payload), event)
 			if err != nil {
+				observability.ExternalMessageError()
+				logger.Error(instanceId, fmt.Sprintf("Failed to marshal redis json: %v", err), slog.Attr{
+					Key:   "connectionId",
+					Value: slog.StringValue(connId),
+				})
 				continue
 			}
 
@@ -369,10 +459,11 @@ func handleExternalMessages(
 			}
 
 			billing.OutboundBytes(instanceId, uint64(len(redisEvent.Payload)))
-			err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload))
-			if err != nil {
+			if err = wsutil.WriteServerMessage(conn, ws.OpText, []byte(redisEvent.Payload)); err != nil {
+				observability.ExternalMessageError()
 				return
 			}
+			observability.OutboundMessage(len(redisEvent.Payload))
 
 			if event.EventType == comm.CLOSE_CONNECTION {
 				return

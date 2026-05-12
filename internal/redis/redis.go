@@ -51,6 +51,13 @@ func InitClient(ctx context.Context) error {
 	return nil
 }
 
+func Ping(ctx context.Context) error {
+	if client == nil {
+		return fmt.Errorf("redis client is not initialized")
+	}
+	return client.Ping(ctx).Err()
+}
+
 // Check if a user ID exists in redis. If it does, return it. Else empty string
 func CheckUserID(ctx context.Context, instanceId, roomId, ip string) (string, error) {
 	key := getReconnectionKey(instanceId, roomId, ip)
