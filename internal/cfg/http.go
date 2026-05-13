@@ -2,8 +2,12 @@ package cfg
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+
+	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 )
 
 type configRequest struct {
@@ -56,6 +60,7 @@ func HandleConfigRequest(w http.ResponseWriter, r *http.Request) {
 func handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	reqBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		logger.ServerError("reding config post request", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -63,32 +68,42 @@ func handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	configReq := configRequest{}
 	err = json.Unmarshal(reqBytes, &configReq)
 	if err != nil {
+		logger.ServerError("unmarshalling config post json", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if configReq.LogLevel != nil {
 		LOG_LEVEL.Store(*configReq.LogLevel)
+		logger.ServerInfo(fmt.Sprintf("Updated log level: %d", *configReq.LogLevel))
 	}
 
 	if configReq.RateLimit != nil {
 		RATE_LIMIT.Store(*configReq.RateLimit)
+		logger.ServerInfo(fmt.Sprintf("Updated rate limit bool: %v", *configReq.RateLimit))
 	}
 
 	if configReq.MaxRequestsPerWindow != nil {
 		MAX_REQUESTS_PER_WINDOW.Store(*configReq.MaxRequestsPerWindow)
+		logger.ServerInfo(fmt.Sprintf("Updated max requests per window: %d", *configReq.MaxRequestsPerWindow))
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func handleConfigGet(w http.ResponseWriter, _ *http.Request) {
+func handleConfigGet(w http.ResponseWriter, r *http.Request) {
 	configBytes, err := json.Marshal(getConfig())
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		logger.ServerError("marshalling config get json", err)
 		return
 	}
+
+	logger.ServerInfo("Config get request", slog.Attr{
+		Key:   "ip",
+		Value: slog.StringValue(r.RemoteAddr),
+	})
 
 	w.Write(configBytes)
 }
