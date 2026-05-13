@@ -46,8 +46,7 @@ type result struct {
 }
 
 func TestMain(m *testing.M) {
-	cfg.USE_FIRESTORE = false
-	cfg.RATE_LIMIT = false
+	cfg.ENV = cfg.DEV
 
 	parentCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

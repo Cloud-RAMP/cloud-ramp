@@ -65,7 +65,7 @@ func RemoveLogger(instanceId string) error {
 }
 
 func Warn(instanceId, connectionId, info string) {
-	if cfg.LOG_LEVEL > cfg.LOG_WARN {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_WARN {
 		return
 	}
 
@@ -79,7 +79,7 @@ func WASMEvent(event *wasmevents.WASMEventInfo) {
 		return
 	}
 
-	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_INFO {
 		return
 	}
 
@@ -102,7 +102,7 @@ func WSEvent(event *wsevents.WSEventInfo) {
 		return
 	}
 
-	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_INFO {
 		return
 	}
 
@@ -120,7 +120,7 @@ func WSEvent(event *wsevents.WSEventInfo) {
 
 // Log a new connection
 func NewConnection(instanceId, ip, connectionId, roomId string) {
-	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_INFO {
 		return
 	}
 
@@ -137,7 +137,7 @@ func NewConnection(instanceId, ip, connectionId, roomId string) {
 }
 
 func Info(instanceId string, msg string, attrs ...slog.Attr) {
-	if cfg.LOG_LEVEL > cfg.LOG_INFO {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_INFO {
 		return
 	}
 
@@ -145,7 +145,7 @@ func Info(instanceId string, msg string, attrs ...slog.Attr) {
 }
 
 func Error(instanceId string, msg string, attrs ...slog.Attr) {
-	if cfg.LOG_LEVEL > cfg.LOG_ERROR {
+	if cfg.LOG_LEVEL.Load() > cfg.LOG_ERROR {
 		return
 	}
 

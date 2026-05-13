@@ -1,16 +1,20 @@
 package cfg
 
-import "time"
+import (
+	"sync/atomic"
+	"time"
+)
 
 const (
 	DEV int = iota
 	PROD
 )
-const ENV = PROD
+
+var ENV = PROD
 
 const (
 	// Log info, warn, error
-	LOG_INFO int = iota //0
+	LOG_INFO uint32 = iota //0
 
 	// Log warn, error
 	LOG_WARN // 1
@@ -28,7 +32,7 @@ const (
 // for simplicity, we can just define variables here
 
 // See log level enum in cfg.go for more info
-var LOG_LEVEL int
+var LOG_LEVEL atomic.Uint32
 
 var USE_FIRESTORE bool
 
@@ -50,12 +54,13 @@ const MSG_JOIN_LEAVE = false
 var USE_MOCK_LOADER bool
 
 // If set to true, rate limiting will be enforced
-var RATE_LIMIT = false
+var RATE_LIMIT atomic.Bool
 
 // If an IP surpasses MAX_REQEUSTS_PER_WINDOW in RATE_LIMIT_WINDOW_SECONDS,
 // they will be backed off.
 const RATE_LIMIT_WINDOW_SECONDS = 30
-const MAX_REQUESTS_PER_WINDOW = 1000
+
+var MAX_REQUESTS_PER_WINDOW atomic.Uint32
 
 // How often we dump local rates to Redis
 //
@@ -85,11 +90,15 @@ const MAX_MODULE_IDLE_TIME = time.Duration(MAX_MODULE_IDLE_TIME_SECONDS * time.S
 func init() {
 	if ENV == DEV {
 		USE_FIRESTORE = false
-		USE_MOCK_LOADER = false
-		LOG_LEVEL = LOG_ERROR
+		USE_MOCK_LOADER = true
+		LOG_LEVEL.Store(LOG_INFO)
+		RATE_LIMIT.Store(false)
 	} else {
 		USE_FIRESTORE = true
 		USE_MOCK_LOADER = false
-		LOG_LEVEL = LOG_ERROR
+		LOG_LEVEL.Store(LOG_ERROR)
+		RATE_LIMIT.Store(true)
 	}
+
+	MAX_REQUESTS_PER_WINDOW.Store(1000)
 }

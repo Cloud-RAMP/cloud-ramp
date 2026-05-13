@@ -49,7 +49,7 @@ func init() {
 //
 // Also clear out any disconnections
 func OnDump() error {
-	if !cfg.RATE_LIMIT {
+	if !cfg.RATE_LIMIT.Load() {
 		return nil
 	}
 
@@ -81,7 +81,7 @@ func OnDump() error {
 //
 // Fetch existing rate limiting data from redis, backoff if necessary
 func RegisterNewConnection(ip string) (bool, error) {
-	if !cfg.RATE_LIMIT {
+	if !cfg.RATE_LIMIT.Load() {
 		return false, nil
 	}
 
@@ -109,7 +109,7 @@ func RegisterNewConnection(ip string) (bool, error) {
 
 	locks.unlock(ip)
 
-	if currentRequests > cfg.MAX_REQUESTS_PER_WINDOW {
+	if uint32(currentRequests) > cfg.MAX_REQUESTS_PER_WINDOW.Load() {
 		return true, nil
 	}
 
@@ -128,7 +128,7 @@ func RegisterNewConnection(ip string) (bool, error) {
 //   - The time since the start of their window is >= than the max
 //   - If the window is reset, their number of requests sent is reset as well
 func RegisterNewRequest(ip string) bool {
-	if !cfg.RATE_LIMIT {
+	if !cfg.RATE_LIMIT.Load() {
 		return false
 	}
 
@@ -148,7 +148,7 @@ func RegisterNewRequest(ip string) bool {
 		return false
 	}
 
-	if mapEntry.NumRequests >= cfg.MAX_REQUESTS_PER_WINDOW && time.Since(mapEntry.WindowStart) <= cfg.RATE_TTL {
+	if uint32(mapEntry.NumRequests) >= cfg.MAX_REQUESTS_PER_WINDOW.Load() && time.Since(mapEntry.WindowStart) <= cfg.RATE_TTL {
 		return true
 	}
 
