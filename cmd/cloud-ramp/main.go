@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	err := godotenv.Load() // this is only necessary in dev, this won't work in prod
+	godotenv.Load()
 
 	parentCtx, cancel := context.WithCancel(context.Background())
 
@@ -39,7 +39,7 @@ func main() {
 
 	logger.ServerInfo("Initializing firestore")
 	if cfg.USE_FIRESTORE {
-		_, err = firestore.InitClient(parentCtx)
+		_, err := firestore.InitClient(parentCtx)
 		if err != nil {
 			logger.ServerError("Failed to initialize firestore:", err)
 			os.Exit(1)
@@ -53,7 +53,7 @@ func main() {
 	}
 
 	// These values will probably need to be changed later to ones that make sense for the system
-	err = sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
+	err := sandbox.InitializeSandbox(parentCtx, store.SandboxStoreCfg{
 		CleanupInterval:    cfg.MODULE_CLEANUP_INTERVAL,
 		MaxIdleTime:        cfg.MAX_MODULE_IDLE_TIME,
 		MemoryLimitPages:   10,
