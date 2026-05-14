@@ -1,13 +1,12 @@
 package cfg
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
-
-	"github.com/Cloud-RAMP/cloud-ramp.git/internal/logger"
 )
 
 type configRequest struct {
@@ -60,7 +59,7 @@ func HandleConfigRequest(w http.ResponseWriter, r *http.Request) {
 func handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	reqBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		logger.ServerError("reding config post request", err)
+		logError("reding config post request", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -68,24 +67,24 @@ func handleConfigPost(w http.ResponseWriter, r *http.Request) {
 	configReq := configRequest{}
 	err = json.Unmarshal(reqBytes, &configReq)
 	if err != nil {
-		logger.ServerError("unmarshalling config post json", err)
+		logError("unmarshalling config post json", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if configReq.LogLevel != nil {
 		LOG_LEVEL.Store(*configReq.LogLevel)
-		logger.ServerInfo(fmt.Sprintf("Updated log level: %d", *configReq.LogLevel))
+		logInfo(fmt.Sprintf("Updated log level: %d", *configReq.LogLevel))
 	}
 
 	if configReq.RateLimit != nil {
 		RATE_LIMIT.Store(*configReq.RateLimit)
-		logger.ServerInfo(fmt.Sprintf("Updated rate limit bool: %v", *configReq.RateLimit))
+		logInfo(fmt.Sprintf("Updated rate limit bool: %v", *configReq.RateLimit))
 	}
 
 	if configReq.MaxRequestsPerWindow != nil {
 		MAX_REQUESTS_PER_WINDOW.Store(*configReq.MaxRequestsPerWindow)
-		logger.ServerInfo(fmt.Sprintf("Updated max requests per window: %d", *configReq.MaxRequestsPerWindow))
+		logInfo(fmt.Sprintf("Updated max requests per window: %d", *configReq.MaxRequestsPerWindow))
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -96,14 +95,33 @@ func handleConfigGet(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		logger.ServerError("marshalling config get json", err)
+		logError("marshalling config get json", err)
 		return
 	}
 
-	logger.ServerInfo("Config get request", slog.Attr{
+	logInfo("Config get request", slog.Attr{
 		Key:   "ip",
 		Value: slog.StringValue(r.RemoteAddr),
 	})
 
 	w.Write(configBytes)
+}
+
+// copy of server info log
+func logInfo(msg string, attrs ...slog.Attr) {
+	slog.LogAttrs(context.Background(), slog.LevelInfo, msg, attrs...)
+}
+
+// copy of server info error
+func logError(msg string, err error, attrs ...slog.Attr) {
+	if err != nil {
+		attrs = append([]slog.Attr{
+			{
+				Key:   "errMsg",
+				Value: slog.StringValue(err.Error()),
+			}}, attrs...)
+		slog.LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
+	} else {
+		slog.LogAttrs(context.Background(), slog.LevelError, msg, attrs...)
+	}
 }
