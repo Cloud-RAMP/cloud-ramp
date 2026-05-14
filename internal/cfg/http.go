@@ -2,12 +2,30 @@ package cfg
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
+
+	"github.com/joho/godotenv"
 )
+
+var configSecret string
+
+func init() {
+	godotenv.Load()
+
+	configSecret = os.Getenv("CONFIG_SECRET")
+	fmt.Println(configSecret)
+	if configSecret == "" {
+		log.Fatal("CONFIG_SECRET env var not set")
+	}
+}
 
 type configRequest struct {
 	LogLevel             *uint32 `json:"log_level"`
@@ -45,14 +63,27 @@ func getConfig() configResponse {
 	}
 }
 
+func checkAuthentication(r *http.Request) bool {
+	authValue := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authValue, "Bearer ")
+
+	// apparently this compares in constant time. good for timing attacks that exploit time taken to compare strings
+	return subtle.ConstantTimeCompare([]byte(token), []byte(configSecret)) == 1
+}
+
 func HandleConfigRequest(w http.ResponseWriter, r *http.Request) {
+	if !checkAuthentication(r) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodPost:
 		handleConfigPost(w, r)
 	case http.MethodGet:
 		handleConfigGet(w, r)
 	default:
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
