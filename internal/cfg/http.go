@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -63,10 +64,11 @@ func getConfig() configResponse {
 }
 
 func checkAuthentication(r *http.Request) bool {
-	authValue := r.Header.Get("X-Config-Secret")
+	authValue := r.Header.Get("Authorization")
+	token := strings.TrimPrefix(authValue, "Bearer ")
 
 	// apparently this compares in constant time. good for timing attacks that exploit time taken to compare strings
-	return subtle.ConstantTimeCompare([]byte(authValue), []byte(configSecret)) == 1
+	return subtle.ConstantTimeCompare([]byte(token), []byte(configSecret)) == 1
 }
 
 func HandleConfigRequest(w http.ResponseWriter, r *http.Request) {
