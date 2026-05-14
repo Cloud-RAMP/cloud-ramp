@@ -92,6 +92,8 @@ func routeRequest(w http.ResponseWriter, r *http.Request) {
 		handleReadiness(w, r)
 	case "/metrics":
 		observability.MetricsHandler(w, r)
+	case "/admin/config":
+		cfg.HandleConfigRequest(w, r)
 	default:
 		handleConnection(w, r)
 	}
